@@ -1,0 +1,25 @@
+# Godot
+.godot/
+*.tmp
+
+# JavaScript prototype
+node_modules/
+dist/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.codex/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime output
+logs/
+artifacts/
+runs/
+*.log

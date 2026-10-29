@@ -1,7 +1,7 @@
 ---
 id: TODO-0001
 priority: P0
-status: done
+status: in-progress
 title: Establish trunk-based development workflow
 branch: docs/trunk-development-workflow
 pull_request: https://github.com/noead01/agent-world/pull/1
@@ -40,7 +40,8 @@ Repository branch-protection settings and continuous-integration checks are sepa
 - 2026-10-29 — `done`: Verification completed and pull request #1 opened for review.
 - 2026-10-29 — `in-progress`: Review expanded the workflow to require individual backlog records and folder-based status transitions.
 - 2026-10-29 — `done`: Folder workflow, template, status index, and assistant guidance completed for renewed review.
+- 2026-10-29 — `in-progress`: Review requested materializing every roadmap candidate as a complete individual backlog record.
 
 ## Notes
 
-This item is in `done/` because the branch is review-ready. It has not yet been merged or released.
+This item is back in `in-progress/` while the repository backlog is expanded into individual, reviewable records.

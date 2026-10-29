@@ -29,7 +29,7 @@ The first meaningful change on a feature branch moves its entry from `backlog/` 
 
 | Priority | Item | Status | Branch | Pull request |
 |---|---|---|---|---|
-| P0 | [Trunk-based development workflow](done/TODO-0001-trunk-development-workflow.md) | `done` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
+| P0 | [Trunk-based development workflow](in-progress/TODO-0001-trunk-development-workflow.md) | `in-progress` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
 
 ## P0 — Foundation
 

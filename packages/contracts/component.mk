@@ -1,0 +1,3 @@
+COMPONENT_NAME := contracts
+COMPONENT_KIND := package
+COMPONENT_RUNTIME := schema

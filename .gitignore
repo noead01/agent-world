@@ -6,13 +6,19 @@
 node_modules/
 dist/
 
+# Python validation tooling
+__pycache__/
+*.py[cod]
+
 # Local configuration and secrets
 .env
 .env.*
 !.env.example
 
 # Editor and operating-system files
-.codex/
+.codex/*
+!.codex/AGENTS.md
+.worktrees/
 .idea/
 .vscode/
 .DS_Store

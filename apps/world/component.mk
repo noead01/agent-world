@@ -1,0 +1,3 @@
+COMPONENT_NAME := world
+COMPONENT_KIND := application
+COMPONENT_RUNTIME := godot-4

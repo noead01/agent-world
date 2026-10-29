@@ -12,7 +12,9 @@ dist/
 !.env.example
 
 # Editor and operating-system files
-.codex/
+.codex/*
+!.codex/AGENTS.md
+.worktrees/
 .idea/
 .vscode/
 .DS_Store

@@ -31,6 +31,87 @@ npm run dev
 
 Use `npm run build` to produce a static build. Do not place LLM credentials or other secrets in browser code.
 
+## Development workflow
+
+Agent World uses trunk-based development. `main` is the trunk and must remain releasable. All changes, including documentation and maintenance work, use short-lived branches and are reviewed through pull requests before being merged.
+
+### Rules
+
+- Do not commit or push directly to `main`.
+- Start each change from an up-to-date `main`.
+- Use one short-lived branch for one coherent change.
+- Keep branches measured in hours or a few days, not weeks.
+- Prefer small pull requests that can be reviewed as a single idea.
+- Rebase the branch onto the latest `main` before final review when it has fallen behind.
+- Require passing automated checks, at least one approving review, and resolution of review conversations before merge.
+- Use squash merge so each pull request becomes one coherent commit on `main`.
+- Delete the remote branch and remove its worktree after merge.
+- Keep incomplete work behind an inactive code path or feature flag when a vertical slice cannot be completed in one small pull request.
+
+Recommended branch prefixes are `feature/`, `fix/`, `docs/`, `refactor/`, `test/`, and `chore/`. Use a short descriptive suffix, for example `feature/scenario-schema` or `fix/stale-intention-validation`.
+
+### Worktrees
+
+Develop each branch in its own Git worktree under the repository-local `.worktrees/` directory. The directory is ignored by Git. Keep the primary checkout on `main` so it remains a clean integration and review point.
+
+From the primary checkout:
+
+```sh
+git fetch origin
+git switch main
+git pull --ff-only
+git worktree add .worktrees/feature-scenario-schema -b feature/scenario-schema main
+```
+
+Perform all edits, local checks, and commits from the new worktree:
+
+```sh
+cd .worktrees/feature-scenario-schema
+git status
+git add <paths>
+git commit
+git push -u origin feature/scenario-schema
+```
+
+Open a pull request targeting `main`. If the branch needs to catch up before final review:
+
+```sh
+git fetch origin
+git rebase origin/main
+git push --force-with-lease
+```
+
+After the pull request is approved and squash-merged, return to the primary checkout and clean up:
+
+```sh
+git switch main
+git pull --ff-only
+git worktree remove .worktrees/feature-scenario-schema
+git branch -d feature/scenario-schema
+git worktree prune
+```
+
+Never place one worktree inside another. Never reuse a worktree for an unrelated branch. Use `git worktree list` before removing or repairing worktrees, and do not remove a worktree containing uncommitted changes.
+
+### Pull requests
+
+A pull request should explain:
+
+- The problem or experiment need being addressed
+- The chosen approach and material tradeoffs
+- How the change was verified
+- Effects on schemas, experiment reproducibility, telemetry, or stored data
+- Risks, limitations, and intentionally deferred work
+- Documentation, ADR, or backlog changes included
+
+Draft pull requests are encouraged for early feedback, but they are not mergeable. Keep commits understandable during review even though they will be squash-merged.
+
+The author responds to review feedback on the feature branch. Material new scope should normally become a separate branch and pull request. Do not merge a pull request merely because checks pass; human approval remains required.
+
+### Urgent fixes
+
+Urgent fixes still use a branch and pull request. Review may be expedited, but the change must remain traceable and must pass the checks relevant to the failure. Follow-up work created by an emergency compromise belongs in the prioritized backlog.
+
 ## Target architecture
 
 The system is divided into two processes with an explicit protocol between them:
@@ -111,4 +192,4 @@ Each backlog item should state an observable outcome. Move completed items to th
 
 ## Definition of done
 
-A change is complete when its behavior is observable, failure modes are represented, relevant documentation is current, and any affected experiment data remains interpretable. New architectural constraints require an ADR; new deferred work requires a prioritized backlog entry.
+A change is complete when its behavior is observable, failure modes are represented, relevant documentation is current, and any affected experiment data remains interpretable. New architectural constraints require an ADR; new deferred work requires a prioritized backlog entry. The branch must also satisfy the pull-request requirements above before merge.

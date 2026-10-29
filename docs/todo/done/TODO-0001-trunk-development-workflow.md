@@ -1,8 +1,10 @@
 ---
 id: TODO-0001
-priority: P0
-status: in-progress
+priority: null
+status: done
+type: setup
 title: Establish trunk-based development workflow
+dependencies: []
 branch: docs/trunk-development-workflow
 pull_request: https://github.com/noead01/agent-world/pull/1
 created: 2026-10-29
@@ -41,7 +43,21 @@ Repository branch-protection settings and continuous-integration checks are sepa
 - 2026-10-29 — `in-progress`: Review expanded the workflow to require individual backlog records and folder-based status transitions.
 - 2026-10-29 — `done`: Folder workflow, template, status index, and assistant guidance completed for renewed review.
 - 2026-10-29 — `in-progress`: Review requested materializing every roadmap candidate as a complete individual backlog record.
+- 2026-10-29 — `done`: All roadmap candidates materialized, indexed, prioritized by folder, validated, and prepared for renewed review.
+
+## Definition of done
+
+- [x] All acceptance criteria are satisfied and supported by repeatable repository checks.
+- [x] Contributor and AI-assistant instructions describe status and priority file movements.
+- [x] Every roadmap candidate has an individual record with acceptance criteria, definition of done, and a demonstration plan.
+- [x] The pull request links the active backlog entry and its review status.
+
+## Demonstration plan
+
+1. Show the prioritized `docs/todo/backlog/p0`–`p3` layout and the flat lifecycle folders.
+2. Trace `TODO-0001` through its recorded `backlog`, `in-progress`, and `done` transitions.
+3. Open representative feature, setup, optimization, and research entries and verify their metadata, acceptance criteria, definition of done, dependencies, and demonstration plan.
 
 ## Notes
 
-This item is back in `in-progress/` while the repository backlog is expanded into individual, reviewable records.
+This item is in `done/` because the branch is ready for renewed review. Its former P0 priority is preserved in status history; completed work has no active priority. It has not yet been merged or released.

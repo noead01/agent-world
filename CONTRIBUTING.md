@@ -42,7 +42,7 @@ Agent World uses trunk-based development. `main` is the trunk and must remain re
 - Use one short-lived branch for one coherent change.
 - Keep branches measured in hours or a few days, not weeks.
 - Prefer small pull requests that can be reviewed as a single idea.
-- Move the branch's backlog entry through the status folders: `in-progress/` while work is underway and `done/` immediately before opening or refreshing its pull request.
+- Move the branch's backlog entry from its priority folder into the flat status folders: `in-progress/` while work is underway and `done/` immediately before opening or refreshing its pull request.
 - Rebase the branch onto the latest `main` before final review when it has fallen behind.
 - Require passing automated checks, at least one approving review, and resolution of review conversations before merge.
 - Use squash merge so each pull request becomes one coherent commit on `main`.
@@ -68,7 +68,7 @@ Perform all edits, local checks, and commits from the new worktree:
 
 ```sh
 cd .worktrees/feature-scenario-schema
-# Move the selected item from docs/todo/backlog/ to docs/todo/in-progress/ first.
+# Move the selected item from docs/todo/backlog/pN/ to docs/todo/in-progress/ first.
 git status
 git add <paths>
 git commit
@@ -110,7 +110,7 @@ Draft pull requests are encouraged for early feedback, but they are not mergeabl
 
 The author responds to review feedback on the feature branch. Material new scope should normally become a separate branch and pull request. Do not merge a pull request merely because checks pass; human approval remains required.
 
-If review feedback requires code or documentation changes, move the backlog item from `done/` back to `in-progress/` before making them. Return it to `done/` only after the branch is ready for review again. Keep the metadata status synchronized with the directory. A pull request must link its backlog entry.
+If review feedback requires code or documentation changes, move the backlog item from `done/` back to `in-progress/` before making them. Return it to `done/` only after the branch is ready for review again. Keep the metadata status synchronized with its directory path. A pull request must link its backlog entry.
 
 ### Urgent fixes
 
@@ -179,23 +179,23 @@ The canonical backlog is under `docs/todo/`. `docs/todo/README.md` is its priori
 - `docs/todo/blocked/`
 - `docs/todo/done/`
 
-Priority remains metadata within each entry. Priorities are:
+Only `backlog/` contains `p0/`, `p1/`, `p2/`, and `p3/` subfolders. Priority determines which waiting item should be selected next; it no longer applies after work starts. `in-progress/`, `blocked/`, and `done/` are flat. Priorities are:
 
 - **P0 — Foundation:** required to establish a coherent end-to-end experiment.
 - **P1 — First experiment:** required for the initial autonomous-discovery study.
 - **P2 — Expansion:** valuable after the first experiment is reproducible.
 - **P3 — Exploration:** possible research directions without near-term commitment.
 
-Each backlog item must include its identifier, priority, status, title, outcome, scope, acceptance criteria, and related branch or pull request. Its `status` metadata must match its containing folder. Use these statuses:
+Each item must include its identifier, status, optional task type and dependencies, title, outcome, scope, acceptance criteria, definition of done, demonstration plan, and related branch or pull request. While in `backlog/`, its priority metadata must match its priority folder. On leaving the backlog, set `priority: null`; the status history retains its former priority. Use these statuses:
 
 - `backlog`: prioritized but not being implemented
 - `in-progress`: active work exists on a short-lived branch
 - `blocked`: work started but cannot currently proceed; record the blocker
 - `done`: implementation and verification are complete and the branch is ready for pull-request review
 
-`done` describes branch readiness, not deployment or release. Moving the entry from `backlog/` to `in-progress/` belongs on the feature branch as its first meaningful change. Moving it to `done/` belongs on that same branch before its pull request is created or marked ready for another review. Git must recognize these transitions as renames so the item's history remains continuous. Do not silently delete completed entries; retain them as the historical link between intent, implementation, and review.
+`done` describes branch readiness, not deployment or release. Moving the entry from `backlog/pN/` to `in-progress/`, clearing its active priority, and recording the selected priority belongs on the feature branch as its first meaningful change. Moving it to `done/` belongs on that same branch before its pull request is created or marked ready for another review. Reprioritization applies only in `backlog/` and moves the file between priority subfolders. Git must recognize these transitions as renames so the item's history remains continuous. Do not silently delete completed entries; retain them as the historical link between intent, implementation, and review.
 
-If a branch is abandoned, move its item back to `backlog/` or into `blocked/` in a separate reviewed change and update its metadata. If implementation changes the priority or scope of adjacent work, update their entries in the same pull request when appropriate.
+If a branch is abandoned, move its item back to an explicitly chosen `backlog/pN/` priority or into `blocked/` in a separate reviewed change and update its metadata. If implementation changes the priority or scope of adjacent backlog work, update those entries in the same pull request when appropriate.
 
 ## Change guidelines
 

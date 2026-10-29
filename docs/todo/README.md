@@ -1,6 +1,35 @@
 # Prioritized Backlog
 
-This is the canonical backlog for Agent World. Priority reflects dependency and experimental value rather than estimated effort.
+This is the prioritized index for Agent World's repository-managed backlog. Priority reflects dependency and experimental value rather than estimated effort.
+
+Each item has an individual Markdown record created from [`template.md`](template.md). Its directory is its visible workflow status, while its front matter provides machine-readable metadata. The record moves with its feature branch and provides the durable link between the planned outcome, implementation status, and pull request.
+
+```text
+docs/todo/
+├── backlog/       # Prioritized, not started
+├── in-progress/   # Active feature branch
+├── blocked/       # Cannot currently proceed
+└── done/          # Branch is ready for review
+```
+
+## Status workflow
+
+| Status | Meaning |
+|---|---|
+| Folder | Metadata | Meaning |
+|---|---|---|
+| `backlog/` | `status: backlog` | Prioritized, with no active implementation branch |
+| `in-progress/` | `status: in-progress` | Active work exists on the recorded short-lived branch |
+| `blocked/` | `status: blocked` | Work cannot proceed; the entry explains why |
+| `done/` | `status: done` | Implementation and verification are complete; the branch is ready for pull-request review |
+
+The first meaningful change on a feature branch moves its entry from `backlog/` to `in-progress/`. The final change before opening a pull request moves it to `done/`. Review feedback that requires more work moves it back to `in-progress/` until the branch is ready again. Update the front matter with every move. `done` means ready for review; it does not mean deployed or released.
+
+## Items in review
+
+| Priority | Item | Status | Branch | Pull request |
+|---|---|---|---|---|
+| P0 | [Trunk-based development workflow](done/TODO-0001-trunk-development-workflow.md) | `done` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
 
 ## P0 — Foundation
 
@@ -60,7 +89,7 @@ This is the canonical backlog for Agent World. Priority reflects dependency and 
 
 ## Completion log
 
-Move completed items here with the completion date and a link to the implementing change or relevant ADR.
+Retain completed entries and link them here after merge with the completion date and pull request. Do not use this log as a substitute for the individual item record.
 
 - 2026-10-29 — Selected Godot 4 with Jolt as the target world runtime ([ADR 0001](../adr/0001-use-godot-with-jolt.md)).
 - 2026-10-29 — Established layered agent control, an external cognition service, ground-truth discovery evaluation, and append-only experiment records ([ADRs](../adr/README.md)).

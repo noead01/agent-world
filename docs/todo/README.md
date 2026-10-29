@@ -2,7 +2,7 @@
 
 This is the prioritized index for Agent World's repository-managed backlog. Priority reflects dependency and experimental value rather than estimated effort.
 
-Each item has an individual Markdown record created from [`template.md`](template.md). Its directory is its visible workflow status, while its front matter provides machine-readable metadata. The record moves with its feature branch and provides the durable link between the planned outcome, implementation status, and pull request.
+Each item selected for implementation has an individual Markdown record created from [`template.md`](template.md). The priority lists below remain concise roadmap candidates until an individual record is created in `backlog/`. The record's directory is its visible workflow status, while its front matter provides machine-readable metadata. It moves with its feature branch and provides the durable link between the planned outcome, implementation status, and pull request.
 
 ```text
 docs/todo/

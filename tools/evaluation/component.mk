@@ -1,0 +1,3 @@
+COMPONENT_NAME := evaluation
+COMPONENT_KIND := tool
+COMPONENT_RUNTIME := undecided

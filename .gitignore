@@ -6,6 +6,10 @@
 node_modules/
 dist/
 
+# Python validation tooling
+__pycache__/
+*.py[cod]
+
 # Local configuration and secrets
 .env
 .env.*

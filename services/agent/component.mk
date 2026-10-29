@@ -1,0 +1,3 @@
+COMPONENT_NAME := agent
+COMPONENT_KIND := service
+COMPONENT_RUNTIME := undecided

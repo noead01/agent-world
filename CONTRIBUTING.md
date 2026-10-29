@@ -25,11 +25,49 @@ The browser prototype may remain temporarily as a behavioral reference. New worl
 The prototype requires Node.js 20.19 or newer.
 
 ```sh
+cd apps/browser-prototype
 npm install
 npm run dev
 ```
 
 Use `npm run build` to produce a static build. Do not place LLM credentials or other secrets in browser code.
+
+## Monorepo and build interface
+
+The repository is organized by deployment and ownership boundary rather than by implementation language:
+
+- `apps/` contains interactive executables such as the Godot world.
+- `services/` contains independently running processes such as the agent service.
+- `packages/` contains shared, versioned contracts and reusable assets.
+- `scenarios/` contains experiment definitions and discovery criteria.
+- `tools/` contains engineering, validation, and offline evaluation tools.
+- `tests/` contains repository-level tests that verify build and cross-component behavior.
+
+Registered components are listed explicitly in `build/components.mk`. Each has `component.mk`, a local Makefile, a README, and unit, integration, and acceptance test locations. Do not infer components by scanning directories: adding a component is an architectural change that should be visible in review.
+
+The root Makefile is the stable contributor and CI interface. Run `make help` to discover it. Common commands are:
+
+```sh
+make bootstrap
+make validate
+make test-unit
+make test-integration
+make test-acceptance
+make test
+make ci
+```
+
+Components may use different native tooling, but their local Makefile must preserve the shared target names. `make ci` is non-mutating and combines formatting checks, linting, structural validation, tests, and builds. `make bootstrap` is intentionally separate so dependency installation is explicit.
+
+### Test layers
+
+- **Unit tests** exercise isolated deterministic logic and should be fast, seed-controlled, and network-free.
+- **Integration tests** exercise technical boundaries such as physics scenes, persistence, schemas, provider adapters, or world-agent protocol exchanges.
+- **Acceptance tests** exercise a component through its public boundary and demonstrate backlog acceptance criteria with machine-readable evidence where practical.
+
+Every implementation backlog item must identify the acceptance tests that demonstrate its criteria. Default tests must not call a live LLM. Use deterministic fakes or recorded provider responses; keep opt-in live-provider experiments separate and report model, parameters, latency, cost, and run validity. Do not assert private chain-of-thought. Assert structured intentions, authoritative events, state changes, and evaluation results.
+
+Runtime-specific test libraries are selected when the corresponding component is implemented. Record a choice in an ADR when it establishes a durable project constraint. Empty or not-yet-implemented components must say that no testable implementation exists rather than report a misleading behavioral pass.
 
 ## Development workflow
 

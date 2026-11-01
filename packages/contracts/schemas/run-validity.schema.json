@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:run-validity:1.0.0",
+  "title": "Run Validity",
+  "description": "Run-validity state machine. A run transitions through validity states as required records and invariants are evaluated. Defined in docs/observability.md 'Health and run validity'. Telemetry-export failure alone produces degraded observability, not an invalid experiment, provided the authoritative record remains intact.",
+  "type": "object",
+  "required": [
+    "run_id",
+    "validity",
+    "evaluated_at",
+    "version"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Identifier of the run whose validity is being recorded."
+    },
+    "validity": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "degraded",
+        "invalid",
+        "aborted"
+      ],
+      "description": "Current run-validity state."
+    },
+    "previous_validity": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "valid",
+        "degraded",
+        "invalid",
+        "aborted",
+        null
+      ],
+      "description": "Prior validity state before this transition (absent for the initial evaluation)."
+    },
+    "transition_reason": {
+      "type": "string",
+      "description": "Human-readable reason for the validity transition."
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when the validity was evaluated."
+    },
+    "evaluator_component": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Component that performed the validity evaluation."
+    },
+    "evidence_summary": {
+      "type": "string",
+      "description": "Summary of evidence supporting this validity state."
+    },
+    "invalidating_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
+      "description": "Identifiers of domain events that caused this validity state, when applicable."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version of the run-validity record format."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "run_id": "run_20261101_demo",
+      "validity": "valid",
+      "previous_validity": null,
+      "evaluated_at": "2026-11-01T06:00:00Z",
+      "evaluator_component": "event_recorder",
+      "transition_reason": "Initial evaluation; required records intact.",
+      "evidence_summary": "All required domain events and invariants are intact.",
+      "invalidating_event_ids": [],
+      "version": "1.0.0"
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "previous_validity": {
+            "const": "invalid"
+          }
+        },
+        "required": [
+          "previous_validity"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validity": {
+            "const": "invalid"
+          }
+        },
+        "required": [
+          "validity"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "previous_validity": {
+            "const": "aborted"
+          }
+        },
+        "required": [
+          "previous_validity"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validity": {
+            "const": "aborted"
+          }
+        },
+        "required": [
+          "validity"
+        ]
+      }
+    }
+  ]
+}

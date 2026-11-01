@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:observability-envelope:1.0.0",
+  "title": "Observability Envelope",
+  "description": "Single validated schema that carries correlation context, run validity, configuration fingerprint, and content capture mode together. Every world, agent, event, and telemetry message shares this envelope so correlation fields are consistent across components. Defined in docs/observability.md Common correlation model and Health and run validity.",
+  "type": "object",
+  "required": [
+    "run_id",
+    "correlation",
+    "version"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Single source of truth for the run identifier. correlation.run_id and validity.run_id must match this value."
+    },
+    "correlation": {
+      "type": "object",
+      "required": [
+        "experiment_id",
+        "scenario_id",
+        "scenario_version",
+        "run_id",
+        "world_revision",
+        "simulation_tick",
+        "simulation_time",
+        "component"
+      ],
+      "properties": {
+        "experiment_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Logical experiment definition identifier."
+        },
+        "scenario_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "World and hidden-fact definition identifier."
+        },
+        "scenario_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Scenario semantic version."
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "One execution of an experiment."
+        },
+        "agent_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Agent whose state or action is involved."
+        },
+        "world_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Monotonic revision of authoritative world state."
+        },
+        "simulation_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Fixed physics-step number."
+        },
+        "simulation_time": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Monotonic simulated time in seconds."
+        },
+        "event_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Domain event identifier, when applicable."
+        },
+        "trace_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "description": "Distributed-trace trace identifier."
+        },
+        "span_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "description": "Distributed-trace span identifier."
+        },
+        "component": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*(:[a-z0-9][a-z0-9._-]*)?$",
+          "description": "Emitting subsystem and optional version."
+        },
+        "component_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Version of the emitting component."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Common correlation fields shared across world, agent, event, and telemetry messages."
+    },
+    "validity": {
+      "type": "object",
+      "required": [
+        "validity",
+        "evaluated_at",
+        "version"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Identifier of the run whose validity is being recorded."
+        },
+        "validity": {
+          "type": "string",
+          "enum": [
+            "valid",
+            "degraded",
+            "invalid",
+            "aborted"
+          ],
+          "description": "Current run-validity state."
+        },
+        "previous_validity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "valid",
+            "degraded",
+            "invalid",
+            "aborted",
+            null
+          ],
+          "description": "Prior validity state before this transition."
+        },
+        "transition_reason": {
+          "type": "string",
+          "description": "Reason for the validity transition."
+        },
+        "evaluated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp when the validity was evaluated."
+        },
+        "evaluator_component": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Component that performed the validity evaluation."
+        },
+        "evidence_summary": {
+          "type": "string",
+          "description": "Summary of evidence supporting this validity state."
+        },
+        "invalidating_event_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]*$"
+          },
+          "description": "Event identifiers that caused this validity state."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version of the run-validity record format."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Run-validity state and transition record."
+    },
+    "fingerprint": {
+      "type": "object",
+      "required": [
+        "fingerprint",
+        "algorithm",
+        "configuration_sources",
+        "component_versions",
+        "computed_at",
+        "version"
+      ],
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 hex digest of the canonical serialized effective configuration."
+        },
+        "algorithm": {
+          "type": "string",
+          "enum": [
+            "sha256"
+          ],
+          "description": "Hash algorithm used to compute the fingerprint."
+        },
+        "configuration_sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Configuration sources included in the fingerprint."
+        },
+        "component_versions": {
+          "type": "object",
+          "required": [
+            "godot",
+            "jolt",
+            "schemas"
+          ],
+          "properties": {
+            "godot": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "jolt": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "schemas": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Component versions included in the fingerprint."
+        },
+        "computed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Stable fingerprint of the effective run configuration."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version of the observability-envelope record format."
+    },
+    "content_capture_mode": {
+      "type": "string",
+      "enum": [
+        "off",
+        "redacted",
+        "full"
+      ],
+      "description": "Content capture mode: off (metadata only), redacted (redacted artifacts), full (complete permitted content). Recorded in run metadata."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "correlation": {
+        "experiment_id": "exp_autonomous_discovery_01",
+        "scenario_id": "first_benchmark_room",
+        "scenario_version": "1.0.0",
+        "run_id": "run_20261101_demo",
+        "agent_id": "wanderer_01",
+        "world_revision": 42,
+        "simulation_tick": 1200,
+        "simulation_time": 20.0,
+        "event_id": "evt_object_moved_001",
+        "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+        "span_id": "00f067aa0ba902b7",
+        "component": "world",
+        "component_version": "1.0.0"
+      },
+      "validity": {
+        "run_id": "run_20261101_demo",
+        "validity": "valid",
+        "previous_validity": null,
+        "evaluated_at": "2026-11-01T06:00:00Z",
+        "evaluator_component": "event_recorder",
+        "transition_reason": "Initial evaluation; required records intact.",
+        "evidence_summary": "All required domain events and invariants are intact.",
+        "invalidating_event_ids": [],
+        "version": "1.0.0"
+      },
+      "fingerprint": {
+        "fingerprint": "a3f5c8e1d2b4f6a7c9e0b1d3f5a7c9e0b1d3f5a7c9e0b1d3f5a7c9e0b1d3f5a7",
+        "algorithm": "sha256",
+        "configuration_sources": [
+          {
+            "path": "apps/world/project.godot",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          {
+            "path": "packages/contracts/schemas/island-object-types.json",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        ],
+        "component_versions": {
+          "godot": "4.7.2",
+          "jolt": "5.1.0",
+          "schemas": "1.0.0"
+        },
+        "computed_at": "2026-11-01T06:00:00Z",
+        "version": "1.0.0"
+      },
+      "version": "1.0.0",
+      "run_id": "run_20261101_demo",
+      "content_capture_mode": "off"
+    }
+  ]
+}

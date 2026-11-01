@@ -37,9 +37,12 @@ func configure(defn: Dictionary) -> void:
 	# Apply physics properties
 	mass = mass_kg
 	gravity_scale = 1.0
-	can_sleep = false
-	# Note: friction and bounciness are set on the collision shape material
-	# in Godot; we store them as metadata for reference
+	can_sleep = true
+	# Assign a PhysicsMaterial so friction and bounciness affect simulation
+	var material: PhysicsMaterial = PhysicsMaterial.new()
+	material.friction = friction
+	material.bounce = bounciness
+	physics_material_override = material
 
 	var dims: Dictionary = dimensions_m
 	var sx: float = float(dims.get("x", 0.5))

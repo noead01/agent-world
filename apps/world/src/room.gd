@@ -15,12 +15,16 @@ var fixed_timestep_hz: float = 60.0
 
 var objects: Array = []
 var _demo_timer: float = 0.0
-var _demo_duration: float = 10.0
+var _demo_duration: float = 30.0
+var _last_print_time: float = 0.0
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
 	ProjectSettings.set_setting("physics/3d/physics_engine", "JoltPhysics")
 	ProjectSettings.set_setting("physics/common/physics_fps", fixed_timestep_hz)
-	ProjectSettings.set_setting("physics/3d/default_gravity", gravity)
+	# Set default gravity to zero; we apply gravity explicitly per object
+	# to avoid double-application (engine gravity + explicit impulse) which
+	# can cause tunneling through collision shapes.
+	ProjectSettings.set_setting("physics/3d/default_gravity", Vector3(0, 0, 0))
 
 	_build_room_boundaries()
 	_spawn_objects()
@@ -41,8 +45,9 @@ func _physics_process(delta: float) -> void:
 		obj.apply_central_impulse(gravity * obj.mass * delta)
 
 	_demo_timer += delta
-	if _demo_timer >= 1.0:
-		_demo_timer = 0.0
+	# Print status once per second without resetting the elapsed timer
+	if _demo_timer - _last_print_time >= 1.0:
+		_last_print_time = _demo_timer
 		var settled: Array[String] = get_settled_objects()
 		print("T+: settled=%d/%d" % [settled.size(), objects.size()])
 		for obj in objects:
@@ -151,6 +156,9 @@ func _spawn_objects() -> void:
 		var obj = load("res://src/rigid_object.gd").new()
 		obj.configure(defn)
 		obj.position = defn["position"]
+		# Enable contact monitoring so body_entered signals fire on collisions
+		obj.contact_monitor = true
+		obj.max_contacts_reported = 1
 		add_child(obj)
 		objects.append(obj)
 

@@ -31,7 +31,7 @@ The first meaningful change on a feature branch moves its entry from `backlog/pN
 
 | Item | Status | Branch | Pull request |
 |---|---|---|---|
-| [TODO-0004 — Define core identifiers and versioned schemas](in-progress/TODO-0004-define-core-identifiers-and-versioned-schemas.md) | `in-progress` | — | — |
+| [TODO-0004 — Define core identifiers and versioned schemas](done/TODO-0004-define-core-identifiers-and-versioned-schemas.md) | `done` | `feature/todo-0004-core-identifiers-versioned-schemas` | [#2](https://github.com/noead01/agent-world/pull/2) |
 | [TODO-0001 — Trunk-based development workflow](done/TODO-0001-trunk-development-workflow.md) | `done` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
 | [TODO-0046 — Establish the monorepo build and test framework](done/TODO-0046-establish-monorepo-build-and-test-framework.md) | `done` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
 

@@ -1,11 +1,11 @@
 ---
 id: TODO-0004
 priority: null
-status: in-progress
+status: done
 type: feature
 dependencies: []
-branch: null
-pull_request: null
+branch: feature/todo-0004-core-identifiers-versioned-schemas
+pull_request: "2"
 created: 2026-10-29
 updated: 2026-11-01
 ---
@@ -43,6 +43,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
 - 2026-11-01 — `in-progress`: All 12 core entity schemas defined, automated verification tests added across unit/integration/acceptance layers, demonstration executed.
+- 2026-11-01 — `done`: Implementation complete, PR #2 opened and ready for review.
 
 ## Notes
 

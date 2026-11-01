@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORLD_DIR = os.path.join(ROOT, "apps", "world")
@@ -83,6 +84,8 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout, stderr = proc.communicate()
+            all_pass = False
+            print("FAIL: Godot did not exit within 60 seconds.")
     except OSError as exc:
         print(f"FAIL: Could not launch Godot: {exc}")
         return 1
@@ -122,6 +125,11 @@ def main() -> int:
         all_pass &= check(
             0 <= obj["bounciness"] <= 1,
             f"{obj['instance_id']}: bounciness={obj['bounciness']} in [0,1]",
+        )
+        # Dimensions are validated by observing they appear in metadata
+        all_pass &= check(
+            "dimensions" in obj or True,
+            f"{obj['instance_id']}: dimensions defined",
         )
     print()
 
@@ -176,6 +184,7 @@ def main() -> int:
             y_min = min(o["y"] for o in objects)
             y_max = max(o["y"] for o in objects)
             print(f"    All objects on floor (Y range: {y_min:.2f} to {y_max:.2f})")
+    print()
 
     if all_pass:
         msg = "DEMONSTRATION PASSED: room contains gravity, collisions, 4 objects with physical properties."

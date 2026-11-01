@@ -1,0 +1,24 @@
+; Agent World — Godot 4 project configuration
+; Runtime settings documented here for the world runtime (TODO-0002).
+; See docs/adr/0001-use-godot-with-jolt.md for the architecture decision.
+; Supported Godot version: 4.7.2-stable
+
+[application]
+
+config/name = "Agent World"
+config/version = "0.1.0"
+run/main_scene = "res://src/main.tscn"
+
+[rendering]
+
+renderer/rendering_method = "gl_compatibility"
+renderer/quality/directional_shadows/max_lights = 4
+
+[physics]
+
+3d/physics_engine = "JoltPhysics"
+3d/default_gravity = Vector3(0, -9.8, 0)
+
+; Fixed timestep: physics runs at a deterministic 60 Hz independent of frame rate.
+common/physics_fps = 60
+common/print_error_messages = true

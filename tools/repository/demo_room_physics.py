@@ -17,12 +17,10 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
 import subprocess
-import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORLD_DIR = os.path.join(ROOT, "apps", "world")
@@ -169,11 +167,14 @@ def main() -> int:
         on_floor = all(-15.0 < o["y"] < -5.0 for o in objects)
         all_pass &= check(on_floor, "all objects rest on the floor (not passed through)")
         if on_floor:
-            print(f"    All objects on floor (Y range: {min(o['y'] for o in objects):.2f} to {max(o['y'] for o in objects):.2f})")
+            y_min = min(o["y"] for o in objects)
+            y_max = max(o["y"] for o in objects)
+            print(f"    All objects on floor (Y range: {y_min:.2f} to {y_max:.2f})")
     print()
 
     if all_pass:
-        print("DEMONSTRATION PASSED: room contains gravity, collisions, 4 objects with physical properties.")
+        msg = "DEMONSTRATION PASSED: room contains gravity, collisions, 4 objects with physical properties."
+        print(msg)
         return 0
     print("DEMONSTRATION FAILED.")
     return 1

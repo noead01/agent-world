@@ -7,15 +7,14 @@ configuration without requiring the Godot engine to be running.
 
 from __future__ import annotations
 
-import glob
-import json
 import os
 import re
 import unittest
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-WORLD_DIR = os.path.join(ROOT, "apps", "world")
-SRC_DIR = os.path.join(WORLD_DIR, "src")
+ROOT = Path(__file__).resolve().parents[4]
+WORLD_DIR = ROOT / "apps" / "world"
+SRC_DIR = WORLD_DIR / "src"
 
 
 def load_text(path: str) -> str:

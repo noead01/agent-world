@@ -8,7 +8,7 @@ Verifies all three acceptance criteria:
   1. The agent and objects cannot pass through static room boundaries
      under normal operation.
   2. Four objects expose stable IDs, mass, friction, restitution, and
-     shape metadata.
+      shape metadata.
   3. Objects fall, collide, settle, and respond to impulses through Jolt.
 
 Usage:
@@ -21,7 +21,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORLD_DIR = os.path.join(ROOT, "apps", "world")
@@ -34,12 +33,17 @@ def check(condition: bool, message: str) -> bool:
 
 
 def parse_object_states(output: str) -> list:
-    """Extract the final state of each object from Godot output."""
+    """Extract the state of each object from Godot output.
+
+    Parses lines like:
+      obj_wood_cube: (0.00, -13.10, 0.00) sleeping=true mass=2.0 friction=0.8 bounciness=0.3 shape=box dims=(0.60,0.60,0.60)
+    """
     objects = {}
     for line in output.splitlines():
         match = re.match(
             r'\s+(\S+):\s+\(([\d\.\-]+),\s*([\d\.\-]+),\s*([\d\.\-]+)\)\s+'
-            r'sleeping=(\w+)\s+mass=([\d\.]+)\s+friction=([\d\.]+)\s+bounciness=([\d\.]+)',
+            r'sleeping=(\w+)\s+mass=([\d\.]+)\s+friction=([\d\.]+)\s+bounciness=([\d\.]+)\s+'
+            r'shape=(\w+)\s+dims=\(([\d\.\-]+),([\d\.\-]+),([\d\.\-]+)\)',
             line,
         )
         if match:
@@ -52,6 +56,10 @@ def parse_object_states(output: str) -> list:
                 "mass_kg": float(match.group(6)),
                 "friction": float(match.group(7)),
                 "bounciness": float(match.group(8)),
+                "shape_type": match.group(9),
+                "dim_x": float(match.group(9 + 1)) if match.group(9 + 1) else None,
+                "dim_y": float(match.group(9 + 2)) if match.group(9 + 2) else None,
+                "dim_z": float(match.group(9 + 3)) if match.group(9 + 3) else None,
             }
     return list(objects.values())
 
@@ -113,6 +121,7 @@ def main() -> int:
     found_ids = {o["instance_id"] for o in objects}
     all_pass &= check(found_ids == expected_ids, f"expected IDs {expected_ids}, got {found_ids}")
 
+    expected_shapes = {"obj_wood_cube": "box", "obj_metal_sphere": "sphere", "obj_glass_box": "box", "obj_rubber_cylinder": "cylinder"}
     for obj in objects:
         all_pass &= check(
             obj["mass_kg"] > 0,
@@ -126,10 +135,24 @@ def main() -> int:
             0 <= obj["bounciness"] <= 1,
             f"{obj['instance_id']}: bounciness={obj['bounciness']} in [0,1]",
         )
-        # Dimensions are validated by observing they appear in metadata
+        # Verify shape_type is present and correct
+        expected_shape = expected_shapes.get(obj["instance_id"])
         all_pass &= check(
-            "dimensions" in obj or True,
-            f"{obj['instance_id']}: dimensions defined",
+            obj.get("shape_type") == expected_shape,
+            f"{obj['instance_id']}: shape_type={obj.get('shape_type')} matches expected {expected_shape}",
+        )
+        # Verify dimensions are present and positive
+        all_pass &= check(
+            obj.get("dim_x") is not None and obj["dim_x"] > 0,
+            f"{obj['instance_id']}: dimensions x={obj.get('dim_x')} present and >0",
+        )
+        all_pass &= check(
+            obj.get("dim_y") is not None and obj["dim_y"] > 0,
+            f"{obj['instance_id']}: dimensions y={obj.get('dim_y')} present and >0",
+        )
+        all_pass &= check(
+            obj.get("dim_z") is not None and obj["dim_z"] > 0,
+            f"{obj['instance_id']}: dimensions z={obj.get('dim_z')} present and >0",
         )
     print()
 
@@ -160,6 +183,15 @@ def main() -> int:
         )
         if len(set(round(y, 1) for y in y_positions)) > 1:
             print(f"    Distinct settle heights: {sorted(set(round(y, 1) for y in y_positions))}")
+
+        # Check impulse response: obj_metal_sphere was given impulse at t=3s
+        metal_sphere = next((o for o in objects if o["instance_id"] == "obj_metal_sphere"), None)
+        if metal_sphere:
+            # obj_metal_sphere starts at x=2.0; after impulse it should have moved
+            x_moved = abs(metal_sphere["x"] - 2.0) > 0.1
+            all_pass &= check(x_moved, f"obj_metal_sphere moved after impulse (x={metal_sphere['x']:.2f})")
+            if x_moved:
+                print(f"    obj_metal_sphere moved to x={metal_sphere['x']:.2f} after impulse")
     print()
 
     # Acceptance criterion 1: Objects cannot pass through static

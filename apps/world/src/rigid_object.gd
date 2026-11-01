@@ -8,6 +8,7 @@ var instance_id: String = ""
 var type_id: String = ""
 var object_name: String = ""
 var kind: String = ""
+var shape_type: String = "box"
 var mass_kg: float = 1.0
 var brittleness: float = 0.0
 var throwable: bool = true
@@ -33,6 +34,7 @@ func configure(defn: Dictionary) -> void:
 	bounciness = float(defn.get("bounciness", 0.5))
 	density_kg_per_m3 = float(defn.get("density_kg_per_m3", 500.0))
 	dimensions_m = defn.get("dimensions_m", { "x": 0.5, "y": 0.5, "z": 0.5 })
+	shape_type = String(defn.get("shape_type", "box"))
 
 	# Apply physics properties
 	mass = mass_kg
@@ -50,9 +52,23 @@ func configure(defn: Dictionary) -> void:
 	var sz: float = float(dims.get("z", 0.5))
 
 	var shape: CollisionShape3D = CollisionShape3D.new()
-	var box: BoxShape3D = BoxShape3D.new()
-	box.size = Vector3(sx, sy, sz)
-	shape.shape = box
+	if shape_type == "box":
+		var box: BoxShape3D = BoxShape3D.new()
+		box.size = Vector3(sx, sy, sz)
+		shape.shape = box
+	elif shape_type == "sphere":
+		var sphere: SphereShape3D = SphereShape3D.new()
+		sphere.radius = sx
+		shape.shape = sphere
+	elif shape_type == "cylinder":
+		var cyl: CylinderShape3D = CylinderShape3D.new()
+		cyl.radius = sx
+		cyl.height = sy
+		shape.shape = cyl
+	else:
+		var box: BoxShape3D = BoxShape3D.new()
+		box.size = Vector3(sx, sy, sz)
+		shape.shape = box
 	add_child(shape)
 
 	# Store metadata on the node for lookup
@@ -68,6 +84,7 @@ func get_metadata() -> Dictionary:
 		"type_id": type_id,
 		"name": object_name,
 		"kind": kind,
+		"shape_type": shape_type,
 		"mass_kg": mass_kg,
 		"brittleness": brittleness,
 		"throwable": throwable,

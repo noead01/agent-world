@@ -18,6 +18,7 @@ var _demo_timer: float = 0.0
 var _demo_duration: float = 10.0
 var _last_print_time: float = 0.0
 var _landed_count: int = 0
+var _impulse_applied: bool = false
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -51,6 +52,14 @@ func _physics_process(delta: float) -> void:
 			obj.apply_central_force(gravity * obj.mass)
 
 	_demo_timer += delta
+	# Apply an impulse to obj_metal_sphere at t=3s to demonstrate impulse response
+	if not _impulse_applied and _demo_timer >= 3.0:
+		var target = _find_object("obj_metal_sphere")
+		if target:
+			target.apply_central_impulse(Vector3(2.0, 0.0, 0.0))
+			_impulse_applied = true
+			print("  IMPULSE applied to obj_metal_sphere at t=%.1fs" % [_demo_timer])
+
 	# Print status once per second without resetting the elapsed timer
 	if _demo_timer - _last_print_time >= 1.0:
 		_last_print_time = _demo_timer
@@ -59,8 +68,9 @@ func _physics_process(delta: float) -> void:
 		for obj in objects:
 			var p: Vector3 = obj.position
 			var meta: Dictionary = obj.get_metadata()
-			print("  %s: (%.2f, %.2f, %.2f) sleeping=%s mass=%.1f friction=%.1f bounciness=%.1f" % [
-				meta["instance_id"], p.x, p.y, p.z, str(obj.is_sleeping()), meta["mass_kg"], meta["friction"], meta["bounciness"]
+			print("  %s: (%.2f, %.2f, %.2f) sleeping=%s mass=%.1f friction=%.1f bounciness=%.1f shape=%s dims=(%.2f,%.2f,%.2f)" % [
+				meta["instance_id"], p.x, p.y, p.z, str(obj.is_sleeping()), meta["mass_kg"], meta["friction"], meta["bounciness"],
+				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
 			])
 
 	if _demo_timer >= _demo_duration:
@@ -68,8 +78,9 @@ func _physics_process(delta: float) -> void:
 		for obj in objects:
 			var meta: Dictionary = obj.get_metadata()
 			var p: Vector3 = obj.position
-			print("  %s: sleeping=%s position=(%.3f, %.3f, %.3f) mass=%.1f friction=%.1f bounciness=%.1f" % [
-				meta["instance_id"], str(obj.is_sleeping()), p.x, p.y, p.z, meta["mass_kg"], meta["friction"], meta["bounciness"]
+			print("  %s: sleeping=%s position=(%.3f, %.3f, %.3f) mass=%.1f friction=%.1f bounciness=%.1f shape=%s dims=(%.2f,%.2f,%.2f)" % [
+				meta["instance_id"], str(obj.is_sleeping()), p.x, p.y, p.z, meta["mass_kg"], meta["friction"], meta["bounciness"],
+				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
 			])
 		print("==========================")
 		get_tree().quit()
@@ -101,6 +112,7 @@ func _spawn_objects() -> void:
 			"type_id": "wood_cube",
 			"name": "Wood Cube",
 			"kind": "artifact",
+			"shape_type": "box",
 			"mass_kg": 2.0,
 			"brittleness": 0.1,
 			"throwable": true,
@@ -116,6 +128,7 @@ func _spawn_objects() -> void:
 			"type_id": "metal_sphere",
 			"name": "Metal Sphere",
 			"kind": "mineral",
+			"shape_type": "sphere",
 			"mass_kg": 5.0,
 			"brittleness": 0.05,
 			"throwable": true,
@@ -131,6 +144,7 @@ func _spawn_objects() -> void:
 			"type_id": "glass_box",
 			"name": "Glass Box",
 			"kind": "artifact",
+			"shape_type": "box",
 			"mass_kg": 1.0,
 			"brittleness": 0.9,
 			"throwable": true,
@@ -146,6 +160,7 @@ func _spawn_objects() -> void:
 			"type_id": "rubber_cylinder",
 			"name": "Rubber Cylinder",
 			"kind": "organic",
+			"shape_type": "cylinder",
 			"mass_kg": 3.0,
 			"brittleness": 0.2,
 			"throwable": true,

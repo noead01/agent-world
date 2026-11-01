@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:action:1.0.0",
+  "title": "Action",
+  "description": "An action. Class-level properties describe the action type and its parameters. Instance-level properties describe a concrete action executed at a specific time.",
+  "type": "object",
+  "required": ["id", "run_id", "agent_id", "timestamp_s", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this action execution."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run this action belongs to."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent that executed the action."
+    },
+    "timestamp_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time in seconds when the action was executed."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the action record format."
+    },
+    "action_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the action type (e.g. 'move', 'touch', 'throw', 'inspect', 'wait')."
+    },
+    "target_instance_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the object instance the action targets, if any."
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "[instance-level] Action-specific parameters (direction, force, duration, etc.) as key/value pairs."
+    },
+    "intention_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the intention this action fulfills, if any."
+    },
+    "result": {
+      "type": "string",
+      "enum": ["success", "failure", "partial", "pending"],
+      "description": "[instance-level] Outcome of the action execution."
+    },
+    "result_description": {
+      "type": "string",
+      "description": "[instance-level] Human-readable description of what happened."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "act_001",
+      "run_id": "run_20261029_alpha",
+      "agent_id": "wanderer_01",
+      "timestamp_s": 20.0,
+      "version": "1.0.0",
+      "action_type_id": "touch",
+      "target_instance_id": "coconut_01",
+      "parameters": { "approach_distance_m": 0.5 },
+      "intention_id": "int_001",
+      "result": "success",
+      "result_description": "The coconut began to move after being touched."
+    }
+  ]
+}

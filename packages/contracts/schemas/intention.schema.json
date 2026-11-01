@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:intention:1.0.0",
+  "title": "Intention",
+  "description": "An intention. Class-level properties describe the intention type/category. Instance-level properties describe a concrete intention formed by an agent at a specific time.",
+  "type": "object",
+  "required": ["id", "run_id", "agent_id", "timestamp_s", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this intention."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run this intention belongs to."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent that formed the intention."
+    },
+    "timestamp_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time in seconds when the intention was formed."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the intention record format."
+    },
+    "intention_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the intention category (e.g. 'approach', 'touch', 'inspect', 'throw', 'retreat')."
+    },
+    "target_instance_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the object instance the intention targets, if any."
+    },
+    "target_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the target object's type, if known."
+    },
+    "thought": {
+      "type": "string",
+      "description": "[instance-level] The agent's natural-language rationale for forming this intention."
+    },
+    "goal": {
+      "type": "string",
+      "description": "[instance-level] High-level goal this intention serves."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["formed", "pursuing", "completed", "abandoned", "failed"],
+      "description": "[instance-level] Current lifecycle status of the intention."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "int_001",
+      "run_id": "run_20261029_alpha",
+      "agent_id": "wanderer_01",
+      "timestamp_s": 15.0,
+      "version": "1.0.0",
+      "intention_type_id": "touch",
+      "target_instance_id": "coconut_01",
+      "target_type_id": "coconut",
+      "thought": "I want to learn whether the coconut moves when touched.",
+      "goal": "Test the coconut",
+      "status": "formed"
+    }
+  ]
+}

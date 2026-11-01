@@ -74,7 +74,7 @@ def main() -> int:
     print("== Running Godot against the room scene ==")
     try:
         proc = subprocess.Popen(
-            [godot, "--path", WORLD_DIR],
+            [godot, "--headless", "--path", WORLD_DIR],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

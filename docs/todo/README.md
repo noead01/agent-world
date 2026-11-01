@@ -34,7 +34,7 @@ The first meaningful change on a feature branch moves its entry from `backlog/pN
 | [TODO-0004 — Define core identifiers and versioned schemas](done/TODO-0004-define-core-identifiers-and-versioned-schemas.md) | `done` | `feature/todo-0004-core-identifiers-versioned-schemas` | [#2](https://github.com/noead01/agent-world/pull/2) |
 | [TODO-0002 — Create the Godot 4 project](done/TODO-0002-create-the-godot-4-project.md) | `done` | `feature/todo-0002-godot-4-project` | [#3](https://github.com/noead01/agent-world/pull/3) |
 | [TODO-0003 — Retire or archive the browser prototype](done/TODO-0003-retire-or-archive-the-browser-prototype.md) | `done` | `refactor/todo-0003-archive-browser-prototype` | [#6](https://github.com/noead01/agent-world/pull/6) |
-| [TODO-0005 — Define observability correlation and validity schemas](in-progress/TODO-0005-define-observability-correlation-and-validity-schemas.md) | `in-progress` | — | — |
+| [TODO-0005 — Define observability correlation and validity schemas](done/TODO-0005-define-observability-correlation-and-validity-schemas.md) | `done` | `feature/todo-0005-observability-schemas` | [#7](https://github.com/noead01/agent-world/pull/7) |
 | [TODO-0001 — Trunk-based development workflow](done/TODO-0001-trunk-development-workflow.md) | `done` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
 | [TODO-0046 — Establish the monorepo build and test framework](done/TODO-0046-establish-monorepo-build-and-test-framework.md) | `done` | `docs/trunk-development-workflow` | [#1](https://github.com/noead01/agent-world/pull/1) |
 

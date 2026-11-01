@@ -1,7 +1,7 @@
 ---
 id: TODO-0005
 priority: null
-status: in-progress
+status: done
 type: feature
 dependencies:
   - TODO-0004
@@ -45,6 +45,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
 - 2026-11-01 — `in-progress`: Four schemas defined in packages/contracts/schemas/ (correlation-context, run-validity, configuration-fingerprint, observability-envelope); 9 unit tests added in packages/contracts/tests/unit/test_observability_schemas.py; demonstration script added at tools/repository/demo_observability_schemas.py.
 - 2026-11-01 — `in-progress`: Addressed Codex review findings on PR #7: bound envelope run_id to correlation/validity run_ids; added terminal-state transition constraints (invalid/aborted cannot return to valid); specified canonical SHA-256 fingerprint computation with actual verification test; added content_capture_mode (off/redacted/full) to envelope; fixed component pattern to accept documented subsystem:version syntax (e.g. 'world:1.0.0').
+- 2026-11-01 — `done`: All acceptance criteria verified via tools/repository/demo_observability_schemas.py; PR #7 merged.
 
 ## Notes
 

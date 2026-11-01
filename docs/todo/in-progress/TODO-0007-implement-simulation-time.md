@@ -1,16 +1,16 @@
 ---
 id: TODO-0007
 priority: P0
-status: backlog
+status: in-progress
 type: feature
 title: "Implement simulation time"
 dependencies:
   - TODO-0002
   - TODO-0006
-branch: null
+branch: feature/todo-0007-simulation-time
 pull_request: null
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-01
 ---
 
 # Implement simulation time
@@ -25,9 +25,9 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 ## Acceptance criteria
 
-- [ ] Simulation time advances only through fixed physics steps.
-- [ ] Pause freezes simulation behavior without corrupting state; resume continues coherently.
-- [ ] Reset and time scaling produce documented, observable lighting and clock behavior.
+- [x] Simulation time advances only through fixed physics steps.
+- [x] Pause freezes simulation behavior without corrupting state; resume continues coherently.
+- [x] Reset and time scaling produce documented, observable lighting and clock behavior.
 
 ## Definition of done
 
@@ -45,6 +45,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 ## Status history
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
+- 2026-11-01 — `in-progress`: Starting implementation of fixed-step simulation time with pause/resume/reset/time-scale and day/night cycle.
 
 ## Notes
 

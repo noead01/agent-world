@@ -14,11 +14,22 @@ var gravity: Vector3 = Vector3(0, -9.8, 0)
 var fixed_timestep_hz: float = 60.0
 
 var objects: Array = []
+var _sim_time_template = preload("res://src/simulation_time.gd")
+var _sim_time
+var _light: DirectionalLight3D
+var _last_light_hour: float = -1.0
+
 var _demo_timer: float = 0.0
 var _demo_duration: float = 10.0
 var _last_print_time: float = 0.0
 var _landed_count: int = 0
 var _impulse_applied: bool = false
+
+var _demo_pause_time: float = 2.0
+var _demo_resume_time: float = 4.0
+var _demo_scale_time: float = 6.0
+var _demo_reset_time: float = 8.0
+var _demo_phase: String = "normal"
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -32,6 +43,14 @@ func _ready() -> void:
 	_build_room_boundaries()
 	_spawn_objects()
 
+	# Create and configure SimulationTime
+	_sim_time = _sim_time_template.new()
+	add_child(_sim_time)
+	_sim_time.time_of_day_changed.connect(_animate_day_night)
+
+	# Find the directional light for day/night animation
+	_light = get_node("../DirectionalLight3D")
+
 	set_process(true)
 	set_physics_process(true)
 
@@ -40,31 +59,61 @@ func _ready() -> void:
 	print("Fixed timestep: %d Hz" % [int(fixed_timestep_hz)])
 	print("Room half-size: %s m" % [str(half_size)])
 	print("Objects spawned: %d" % [objects.size()])
+	print("Simulation time: %d Hz fixed step, day cycle %ds" % [int(fixed_timestep_hz), int(_sim_time.day_cycle_duration_s)])
 	print("=================================")
 
 func _physics_process(delta: float) -> void:
-	# Apply gravity as force to non-sleeping objects so they fall and settle.
-	# Using force (not impulse) lets Godot compute correct acceleration:
-	# a = F / m = gravity * mass / mass = gravity.
-	# Applying only to non-sleeping objects lets settled bodies rest.
-	for obj in objects:
-		if not obj.is_sleeping():
-			obj.apply_central_force(gravity * obj.mass)
+	# Advance simulation time through fixed physics steps
+	_sim_time.tick(delta)
 
+	# Demo sequence: pause/resume/time-scale/reset at scheduled times
 	_demo_timer += delta
-	# Apply an impulse to obj_metal_sphere at t=3s to demonstrate impulse response
-	if not _impulse_applied and _demo_timer >= 3.0:
+	if _demo_phase == "normal" and _demo_timer >= _demo_pause_time:
+		_sim_time.pause()
+		_demo_phase = "paused"
+		print("  SIM PAUSED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
+	elif _demo_phase == "paused" and _demo_timer >= _demo_resume_time:
+		_sim_time.resume()
+		_demo_phase = "normal"
+		print("  SIM RESUMED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
+	elif _demo_phase == "normal" and _demo_timer >= _demo_scale_time:
+		_sim_time.set_time_scale(2.0)
+		_demo_phase = "scaled"
+		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
+	elif _demo_phase == "scaled" and _demo_timer >= _demo_reset_time:
+		_sim_time.reset()
+		_sim_time.set_time_scale(1.0)
+		_demo_phase = "reset"
+		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
+
+	# Apply gravity only when not paused (pause freezes behavior without corrupting state)
+	if not _sim_time.is_paused:
+		for obj in objects:
+			if not obj.is_sleeping():
+				obj.apply_central_force(gravity * obj.mass)
+	else:
+		# During pause, zero velocities to truly freeze simulation behavior
+		for obj in objects:
+			obj.linear_velocity = Vector3(0, 0, 0)
+			obj.angular_velocity = Vector3(0, 0, 0)
+
+	# Apply an impulse to obj_metal_sphere at t=1s (before pause) to demonstrate impulse response
+	if not _impulse_applied and _demo_timer >= 1.0:
 		var target = _find_object("obj_metal_sphere")
 		if target:
 			target.apply_central_impulse(Vector3(2.0, 0.0, 0.0))
 			_impulse_applied = true
 			print("  IMPULSE applied to obj_metal_sphere at t=%.1fs" % [_demo_timer])
 
-	# Print status once per second without resetting the elapsed timer
+	# Print status once per second with simulation time
 	if _demo_timer - _last_print_time >= 1.0:
 		_last_print_time = _demo_timer
 		var settled: Array[String] = get_settled_objects()
-		print("T+: settled=%d/%d landed=%d" % [settled.size(), objects.size(), _landed_count])
+		print("T+: wall=%.1fs sim=%.3f tick=%d paused=%s scale=%.1f tod=%.1f settled=%d/%d landed=%d" % [
+			_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick,
+			str(_sim_time.is_paused), _sim_time.time_scale, _sim_time.get_time_of_day(),
+			settled.size(), objects.size(), _landed_count
+		])
 		for obj in objects:
 			var p: Vector3 = obj.position
 			var meta: Dictionary = obj.get_metadata()
@@ -82,6 +131,11 @@ func _physics_process(delta: float) -> void:
 				meta["instance_id"], str(obj.is_sleeping()), p.x, p.y, p.z, meta["mass_kg"], meta["friction"], meta["bounciness"],
 				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
 			])
+		print("=== Final Simulation State ===")
+		print("  wall=%.3fs sim=%.3fs tick=%d paused=%s scale=%.1f tod=%.1f" % [
+			_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick,
+			str(_sim_time.is_paused), _sim_time.time_scale, _sim_time.get_time_of_day()
+		])
 		print("==========================")
 		get_tree().quit()
 
@@ -222,3 +276,16 @@ func get_settled_objects() -> Array[String]:
 		if obj.is_sleeping():
 			result.append(obj.instance_id)
 	return result
+
+func _animate_day_night(hour: float) -> void:
+	if _light == null:
+		return
+	# Map time_of_day (0-24) to light rotation and energy
+	# 6h = sunrise (low east), 12h = noon (overhead), 18h = sunset (low west), 0h = midnight (below horizon)
+	var angle: float = (hour - 6.0) / 24.0 * TAU  # radians, 0 at sunrise
+	var elevation: float = sin(angle)  # 1 at noon, -1 at midnight
+	var azimuth: float = cos(angle)    # 1 at sunrise/noon side, -1 at sunset side
+	_light.rotation_degrees = Vector3(-90.0 + elevation * 45.0, azimuth * 30.0, 0.0)
+	# Energy: full at noon, dim at dawn/dusk, minimal at night
+	var energy: float = clamp(0.2 + 0.8 * max(0.0, sin(angle)), 0.1, 1.0)
+	_light.energy = energy

@@ -18,7 +18,7 @@ Update documentation in the same change that makes it inaccurate. Do not use TOD
 
 Godot 4 with Jolt is the supported world runtime. The early Three.js
 browser prototype has been archived under `archive/apps/browser-prototype/`
-by [TODO-0003](../todo/done/TODO-0003-retire-or-archive-the-browser-prototype.md).
+by [TODO-0003](docs/todo/done/TODO-0003-retire-or-archive-the-browser-prototype.md).
 It is retained only as a disposable behavioral reference; no build target
 or contributor instruction depends on it. New world-runtime development
 targets Godot rather than extending the prototype's hand-written physics.

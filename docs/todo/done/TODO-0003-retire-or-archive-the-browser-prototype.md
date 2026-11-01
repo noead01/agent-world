@@ -1,12 +1,12 @@
 ---
 id: TODO-0003
 priority: null
-status: in-progress
+status: done
 type: refactoring
 dependencies:
   - TODO-0002
-branch: null
-pull_request: null
+branch: refactor/todo-0003-archive-browser-prototype
+pull_request: "6"
 created: 2026-10-29
 updated: 2026-11-01
 ---
@@ -44,6 +44,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
 - 2026-11-01 — `in-progress`: Prototype moved from apps/browser-prototype/ to archive/apps/browser-prototype/; CONTRIBUTING.md updated to name Godot as the only active runtime and remove prototype run instructions; acceptance tests added to tests/acceptance/test_build_interface.py; demonstration script added at tools/repository/demo_prototype_retirement.py.
+- 2026-11-01 — `done`: All acceptance criteria verified via tools/repository/demo_prototype_retirement.py; PR #6 opened and ready for review.
 
 ## Notes
 

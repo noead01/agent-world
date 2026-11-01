@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:correlation-context:1.0.0",
+  "title": "Correlation Context",
+  "description": "Common correlation fields carried by every world, agent, event, and telemetry message so signals can be joined to a run. Defined in docs/observability.md 'Common correlation model'.",
+  "type": "object",
+  "required": ["experiment_id", "scenario_id", "scenario_version", "run_id", "world_revision", "simulation_tick", "simulation_time", "component"],
+  "properties": {
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Logical experiment definition identifier."
+    },
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "World and hidden-fact definition identifier."
+    },
+    "scenario_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Scenario semantic version."
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "One execution of an experiment."
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Agent whose state or action is involved (absent when no agent is involved)."
+    },
+    "world_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic revision of authoritative world state."
+    },
+    "simulation_tick": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fixed physics-step number."
+    },
+    "simulation_time": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Monotonic simulated time in seconds."
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Domain event identifier, when applicable."
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Distributed-trace trace identifier (W3C trace context hex)."
+    },
+    "span_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Distributed-trace span identifier (W3C trace context hex)."
+    },
+    "component": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*(:[a-z][a-z0-9_-]*)?$",
+      "description": "Emitting subsystem and optional version, e.g. 'world' or 'world:1.0.0'."
+    },
+    "component_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Version of the emitting component."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "experiment_id": "exp_autonomous_discovery_01",
+      "scenario_id": "first_benchmark_room",
+      "scenario_version": "1.0.0",
+      "run_id": "run_20261101_demo",
+      "agent_id": "wanderer_01",
+      "world_revision": 42,
+      "simulation_tick": 1200,
+      "simulation_time": 20.0,
+      "event_id": "evt_object_moved_001",
+      "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "span_id": "00f067aa0ba902b7",
+      "component": "world",
+      "component_version": "1.0.0"
+    }
+  ]
+}

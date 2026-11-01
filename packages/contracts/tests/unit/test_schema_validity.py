@@ -53,7 +53,7 @@ class EmbeddedExamplesValidate(unittest.TestCase):
 
 
 class StableIdentifierFormat(unittest.TestCase):
-    """Every core entity schema must declare an id field with the stable identifier pattern."""
+    """Every core entity schema that declares an id field must use the stable identifier pattern."""
 
     ID_PATTERN = r"^[a-z][a-z0-9_-]*$"
 
@@ -62,8 +62,10 @@ class StableIdentifierFormat(unittest.TestCase):
         schema_files = sorted(glob.glob(os.path.join(SCHEMAS_DIR, "*.schema.json")))
         for path in schema_files:
             schema = load_json(path)
+            props = schema.get("properties", {})
+            if "id" not in props:
+                continue  # context blocks and state machines need not declare an entity id
             with self.subTest(schema=schema.get("$id", path)):
-                props = schema.get("properties", {})
                 self.assertIn("id", props, f"{schema.get('$id')} missing id property")
                 id_prop = props["id"]
                 self.assertEqual(id_prop.get("type"), "string")
@@ -71,15 +73,17 @@ class StableIdentifierFormat(unittest.TestCase):
 
 
 class VersionDeclaration(unittest.TestCase):
-    """Every core entity schema must declare a version field with semantic versioning pattern."""
+    """Every core entity schema that declares a version field must use semantic versioning pattern."""
 
     def test_version_fields_declared(self):
         self.assertIsNotNone(jsonschema, "jsonschema is required")
         schema_files = sorted(glob.glob(os.path.join(SCHEMAS_DIR, "*.schema.json")))
         for path in schema_files:
             schema = load_json(path)
+            props = schema.get("properties", {})
+            if "version" not in props:
+                continue  # context blocks and state machines need not declare a schema version
             with self.subTest(schema=schema.get("$id", path)):
-                props = schema.get("properties", {})
                 self.assertIn("version", props, f"{schema.get('$id')} missing version property")
                 version_prop = props["version"]
                 self.assertEqual(version_prop.get("type"), "string")

@@ -20,9 +20,53 @@ The repository contains an early Three.js browser prototype. It demonstrates con
 
 The browser prototype may remain temporarily as a behavioral reference. New world-runtime development should target Godot rather than extending its hand-written physics.
 
-## Running the browser prototype
+## Prerequisites
 
-The prototype requires Node.js 20.19 or newer.
+### Godot 4 (world runtime)
+
+Godot 4.x (official stable build, with Jolt physics integrated) must be installed and on `PATH`. The world runtime uses Godot's built-in Jolt physics engine, which is only available in Godot 4.
+
+**Important:** `apt install godot3` installs Godot 3.6.x, which lacks Jolt physics and will not work for the world runtime.
+
+**Ubuntu/Debian — install Godot 4:**
+
+Godot 4 is not yet in the Ubuntu package repositories. Download the official Linux x86_64 editor binary from the Godot releases page:
+
+```sh
+# Pick the latest stable release (e.g. 4.7.2-stable)
+GODOT_VERSION="4.7.2-stable"
+curl -sL -o /tmp/godot-linux.zip \
+  "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+python3 -c "import zipfile; zipfile.ZipFile('/tmp/godot-linux.zip').extractall('$HOME/.local/bin')"
+chmod +x "$HOME/.local/bin/Godot_v${GODOT_VERSION}_linux.x86_64"
+ln -sf "Godot_v${GODOT_VERSION}_linux.x86_64" "$HOME/.local/bin/godot"
+rm /tmp/godot-linux.zip
+```
+
+Add `~/.local/bin` to your `PATH` if it is not already:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Verify the installation:
+
+```sh
+godot --version
+```
+
+Expected output includes `Godot Engine v4.x`.
+
+**Headless CI runs:** The world component can be run headless without a display:
+
+```sh
+godot --headless --path apps/world --quit-after 1
+```
+
+### Node.js (browser prototype)
+
+The disposable Three.js browser prototype requires Node.js 20.19 or newer.
 
 ```sh
 cd apps/browser-prototype

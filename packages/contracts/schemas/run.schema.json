@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:run:1.0.0",
+  "title": "Run",
+  "description": "A run record. Class-level properties describe the run's configuration/template. Instance-level properties describe the concrete execution (timestamps, agent, spawned objects).",
+  "type": "object",
+  "required": ["id", "scenario_id", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this run."
+    },
+    "scenario_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the scenario this run executes against."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the run record format."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent executing this run."
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "[instance-level] UTC timestamp when the run began."
+    },
+    "ended_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "[instance-level] UTC timestamp when the run concluded (absent if still running)."
+    },
+    "simulation_time_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Total simulated elapsed time in seconds."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["scheduled", "running", "paused", "completed", "aborted"],
+      "description": "[instance-level] Current lifecycle status of the run."
+    },
+    "random_seed": {
+      "type": "integer",
+      "description": "[instance-level] Seed used for stochastic elements during execution."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "run_20261029_alpha",
+      "scenario_id": "first_benchmark_room",
+      "version": "1.0.0",
+      "agent_id": "wanderer_01",
+      "started_at": "2026-10-29T06:00:00Z",
+      "ended_at": null,
+      "simulation_time_s": 0,
+      "status": "running",
+      "random_seed": 42
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:belief:1.0.0",
+  "title": "Belief",
+  "description": "A belief. Class-level properties describe the belief type/category. Instance-level properties describe a concrete agent-held belief at a specific time, including confidence and supporting evidence.",
+  "type": "object",
+  "required": ["id", "run_id", "agent_id", "fact_id", "timestamp_s", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this belief record."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run this belief belongs to."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent holding this belief."
+    },
+    "fact_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the ground-truth fact this belief concerns."
+    },
+    "timestamp_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time in seconds when this belief state was recorded."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the belief record format."
+    },
+    "content": {
+      "type": "string",
+      "description": "[instance-level] The agent's natural-language statement of what it believes."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "[instance-level] Agent's confidence in this belief (0 to 1)."
+    },
+    "is_correct": {
+      "type": "boolean",
+      "description": "[instance-level] Whether the belief matches ground truth (authoritative, inaccessible to the agent)."
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[instance-level] Identifiers of evidence records supporting this belief."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "belief_001",
+      "run_id": "run_20261029_alpha",
+      "agent_id": "wanderer_01",
+      "fact_id": "fact_coconut_moves",
+      "timestamp_s": 22.0,
+      "version": "1.0.0",
+      "content": "The coconut moves when I touch it.",
+      "confidence": 0.8,
+      "is_correct": true,
+      "evidence_ids": ["ev_001"]
+    }
+  ]
+}

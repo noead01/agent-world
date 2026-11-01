@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:observation:1.0.0",
+  "title": "Observation",
+  "description": "An observation. Class-level properties describe the observation type/modality. Instance-level properties describe a concrete perceived event at a specific time.",
+  "type": "object",
+  "required": ["id", "run_id", "agent_id", "timestamp_s", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this observation."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run this observation belongs to."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent that made the observation."
+    },
+    "timestamp_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time in seconds when the observation occurred."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the observation record format."
+    },
+    "observation_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the observation modality/type (e.g. 'visual_object', 'tactile_contact', 'audio_impact')."
+    },
+    "target_instance_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the observed object instance, if any."
+    },
+    "target_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the observed object's type, if known."
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "[instance-level] Observed attribute values (color, size, temperature, etc.) as key/value pairs."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1.0,
+      "description": "[instance-level] Agent's confidence in this observation (0 to 1)."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "obs_001",
+      "run_id": "run_20261029_alpha",
+      "agent_id": "wanderer_01",
+      "timestamp_s": 12.5,
+      "version": "1.0.0",
+      "observation_type_id": "visual_object",
+      "target_instance_id": "coconut_01",
+      "target_type_id": "coconut",
+      "properties": { "color": "#e7be69", "radius_m": 0.15, "distance_m": 2.3 },
+      "confidence": 0.95
+    }
+  ]
+}

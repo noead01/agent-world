@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:scenario:1.0.0",
+  "title": "Scenario",
+  "description": "A scenario definition. Class-level properties describe the world template (which object types exist, environment parameters). Instance-level properties describe a specific placement/seed of that template.",
+  "type": "object",
+  "required": ["id", "name", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[class-level] Stable identifier for the scenario."
+    },
+    "name": {
+      "type": "string",
+      "description": "[class-level] Human-readable scenario name."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Semantic version of the scenario definition."
+    },
+    "description": {
+      "type": "string",
+      "description": "[class-level] Authored description of the scenario and its intended discovery objectives."
+    },
+    "object_type_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[class-level] Identifiers of object types available in this scenario (references object-type catalog)."
+    },
+    "world_bounds_m": {
+      "type": "object",
+      "properties": {
+        "x_min": { "type": "number" },
+        "x_max": { "type": "number" },
+        "z_min": { "type": "number" },
+        "z_max": { "type": "number" }
+      },
+      "required": ["x_min", "x_max", "z_min", "z_max"],
+      "description": "[class-level] Playable world bounds in meters."
+    },
+    "gravity_m_per_s2": {
+      "type": "number",
+      "default": 9.8,
+      "description": "[class-level] Gravity acceleration in m/s^2."
+    },
+    "time_of_day_start_hour": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 24,
+      "default": 6,
+      "description": "[class-level] Starting hour of the 24-hour light cycle."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "[instance-level] Deterministic seed for procedural placement; ties a run to a specific scenario instantiation."
+    },
+    "spawn_configurations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type_id", "instance_id", "position"],
+        "properties": {
+          "type_id": { "type": "string", "description": "[instance-level] Object type identifier." },
+          "instance_id": { "type": "string", "description": "[instance-level] Stable identifier for this specific object instance." },
+          "position": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } },
+            "required": ["x", "y", "z"],
+            "description": "[instance-level] Placement position in meters."
+          },
+          "orientation_degrees": {
+            "type": "object",
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } },
+            "required": ["x", "y", "z"],
+            "description": "[instance-level] Placement orientation in degrees."
+          },
+          "size_scale": {
+            "type": "number",
+            "minimum": 0,
+            "default": 1.0,
+            "description": "[instance-level] Per-instance size multiplier relative to the type definition."
+          }
+        }
+      },
+      "description": "[instance-level] Concrete object instances placed in this scenario, overriding type-level defaults."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "first_benchmark_room",
+      "name": "First Benchmark Room",
+      "version": "1.0.0",
+      "description": "A single room with several manipulable objects and immovable flora.",
+      "object_type_ids": ["coconut_palm_tree", "coconut", "seashell", "glass_bottle", "piece_of_driftwood"],
+      "world_bounds_m": { "x_min": -5, "x_max": 5, "z_min": -3.2, "z_max": 3.2 },
+      "gravity_m_per_s2": 9.8,
+      "time_of_day_start_hour": 6,
+      "seed": 42,
+      "spawn_configurations": [
+        { "type_id": "coconut_palm_tree", "instance_id": "palm_01", "position": { "x": 0, "y": 0, "z": -2 }, "orientation_degrees": { "x": 0, "y": 0, "z": 0 }, "size_scale": 1.0 },
+        { "type_id": "coconut", "instance_id": "coconut_01", "position": { "x": -1, "y": 0.5, "z": -1 }, "orientation_degrees": { "x": 0, "y": 45, "z": 0 }, "size_scale": 0.9 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:memory:1.0.0",
+  "title": "Memory",
+  "description": "A memory. Class-level properties describe the memory type/category. Instance-level properties describe a concrete agent memory record (observation, belief, or event) retained at a specific time.",
+  "type": "object",
+  "required": ["id", "run_id", "agent_id", "timestamp_s", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this memory record."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run this memory belongs to."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent that holds this memory."
+    },
+    "timestamp_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time in seconds when the memory was formed/recorded."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the memory record format."
+    },
+    "memory_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the memory category (e.g. 'observation_memory', 'belief_memory', 'event_memory', 'semantic_memory')."
+    },
+    "source_record_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the source record this memory references (observation, belief, or event id)."
+    },
+    "source_record_type": {
+      "type": "string",
+      "enum": ["observation", "belief", "event", "intention", "action"],
+      "description": "[class-level] Type of the source record referenced by this memory."
+    },
+    "content_summary": {
+      "type": "string",
+      "description": "[instance-level] Summarized content retained in memory."
+    },
+    "importance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.5,
+      "description": "[instance-level] Importance/salience weight affecting retention (0 to 1)."
+    },
+    "last_accessed_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time when the memory was last accessed, if any."
+    },
+    "retention_priority": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.5,
+      "description": "[instance-level] Priority for retention vs. forgetting (0 to 1)."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "mem_001",
+      "run_id": "run_20261029_alpha",
+      "agent_id": "wanderer_01",
+      "timestamp_s": 22.0,
+      "version": "1.0.0",
+      "memory_type_id": "belief_memory",
+      "source_record_id": "belief_001",
+      "source_record_type": "belief",
+      "content_summary": "Believes coconuts move when touched, confidence 0.8.",
+      "importance": 0.7,
+      "last_accessed_s": 30.0,
+      "retention_priority": 0.6
+    }
+  ]
+}

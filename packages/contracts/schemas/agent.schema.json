@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:agent:1.0.0",
+  "title": "Agent",
+  "description": "An agent. Class-level properties describe the agent type/capabilities. Instance-level properties describe the concrete agent's state and identity.",
+  "type": "object",
+  "required": ["id", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this agent."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the agent record format."
+    },
+    "agent_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the agent type/template (e.g. 'exploration_agent')."
+    },
+    "name": {
+      "type": "string",
+      "description": "[instance-level] Human-readable name for this agent."
+    },
+    "drive_weights": {
+      "type": "object",
+      "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 },
+      "description": "[class-level] Weights for the agent's initial drives (curiosity, stability, etc.)."
+    },
+    "position": {
+      "type": "object",
+      "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" } },
+      "required": ["x", "y", "z"],
+      "description": "[instance-level] Current position in meters."
+    },
+    "heading_radians": {
+      "type": "number",
+      "description": "[instance-level] Current facing heading in radians."
+    },
+    "status": {
+      "type": "string",
+      "description": "[instance-level] Current high-level status string (e.g. 'observing the world')."
+    },
+    "current_goal": {
+      "type": "string",
+      "description": "[instance-level] The agent's current stated goal."
+    },
+    "world_time_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time known to the agent in seconds."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "wanderer_01",
+      "version": "1.0.0",
+      "agent_type_id": "exploration_agent",
+      "name": "Wanderer",
+      "drive_weights": { "curiosity": 0.7, "stability": 0.3 },
+      "position": { "x": 0, "y": 0.56, "z": 1.5 },
+      "heading_radians": 0,
+      "status": "observing the world",
+      "current_goal": "Taking in the surroundings",
+      "world_time_s": 0
+    }
+  ]
+}

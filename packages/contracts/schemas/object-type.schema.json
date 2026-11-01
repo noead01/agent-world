@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:object-type:1.0.0",
+  "title": "Island Object Type",
+  "description": "Physical definition of a type of object that can be found on an island, including how difficult it is to move, throw, or break.",
+  "type": "object",
+  "required": ["id", "name", "kind", "movability", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[class-level] Stable identifier for the object type."
+    },
+    "name": {
+      "type": "string",
+      "description": "[class-level] Human-readable name of the object type."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["flora", "mineral", "organic", "artifact", "debris"],
+      "description": "[class-level] Broad category of the object."
+    },
+    "movability": {
+      "type": "string",
+      "enum": ["fixed", "heavy", "moderate", "light", "trivial"],
+      "description": "[class-level] How difficult the object is to move. 'fixed' means utterly difficult to move (e.g. a tree); 'trivial' means it can be carried with ease."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Semantic version of the object type definition."
+    },
+    "weightKg": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Mass of a single instance in kilograms."
+    },
+    "brittleness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Likelihood the object breaks when thrown or struck, from 0 (indestructible) to 1 (shatters easily)."
+    },
+    "throwable": {
+      "type": "boolean",
+      "description": "Whether the object can be thrown by an agent."
+    },
+    "stackable": {
+      "type": "boolean",
+      "description": "Whether multiple instances can occupy the same space."
+    },
+    "dimensionsM": {
+      "type": "object",
+      "properties": {
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 },
+        "z": { "type": "number", "minimum": 0 }
+      },
+      "required": ["x", "y", "z"],
+      "description": "Approximate bounding-box size in meters."
+    },
+    "densityKgPerM3": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Material density in kilograms per cubic meter."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Authored commentary about the object type (not part of simulation state)."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "coconut_palm_tree",
+      "name": "coconut palm tree",
+      "kind": "flora",
+      "movability": "fixed",
+      "version": "1.0.0",
+      "weightKg": 800,
+      "brittleness": 0.05,
+      "throwable": false,
+      "stackable": false,
+      "dimensionsM": { "x": 1.2, "y": 8.0, "z": 1.2 },
+      "densityKgPerM3": 650
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:fact:1.0.0",
+  "title": "Fact",
+  "description": "A fact. Class-level properties describe an authoritative ground-truth fact defined by the experiment author. Instance-level properties describe the fact's verification state within a specific run.",
+  "type": "object",
+  "required": ["id", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[class-level] Stable identifier for this fact."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the fact record format."
+    },
+    "scenario_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the scenario this fact belongs to."
+    },
+    "statement": {
+      "type": "string",
+      "description": "[class-level] Authored ground-truth statement of the fact (inaccessible to the agent)."
+    },
+    "prerequisite_fact_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[class-level] Fact identifiers that must be verified before this fact can be discovered."
+    },
+    "qualifying_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["observation_type_id", "target_type_id"],
+        "properties": {
+          "observation_type_id": { "type": "string" },
+          "target_type_id": { "type": "string" },
+          "required_properties": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "[class-level] Property names that must be observed to qualify as evidence."
+          }
+        }
+      },
+      "description": "[class-level] Conditions that constitute qualifying evidence for this fact."
+    },
+    "verification_criteria": {
+      "type": "string",
+      "description": "[class-level] Criteria used to verify the fact has been discovered."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run in which this fact's discovery is tracked."
+    },
+    "discovery_stage": {
+      "type": "string",
+      "enum": ["encountered", "noticed", "investigated", "hypothesized", "verified", "retained", "applied", "generalized"],
+      "description": "[instance-level] Current discovery stage for this fact within the run."
+    },
+    "verified_at_s": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "description": "[instance-level] Simulated time when the fact was verified, if applicable."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "fact_coconut_moves",
+      "version": "1.0.0",
+      "scenario_id": "first_benchmark_room",
+      "statement": "Coconuts move when touched.",
+      "prerequisite_fact_ids": [],
+      "qualifying_evidence": [
+        { "observation_type_id": "tactile_contact", "target_type_id": "coconut", "required_properties": ["moved"] }
+      ],
+      "verification_criteria": "Agent observes a coconut changing position after a touch action.",
+      "run_id": "run_20261029_alpha",
+      "discovery_stage": "hypothesized",
+      "verified_at_s": null
+    }
+  ]
+}

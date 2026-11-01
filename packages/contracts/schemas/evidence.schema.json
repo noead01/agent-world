@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-world:contracts:evidence:1.0.0",
+  "title": "Evidence",
+  "description": "Evidence. Class-level properties describe the evidence type/category. Instance-level properties describe a concrete piece of evidence recorded at a specific time, linking observations to beliefs.",
+  "type": "object",
+  "required": ["id", "run_id", "agent_id", "timestamp_s", "version"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "[instance-level] Stable identifier for this evidence record."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the run this evidence belongs to."
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "[instance-level] Identifier of the agent that recorded this evidence."
+    },
+    "timestamp_s": {
+      "type": "number",
+      "minimum": 0,
+      "description": "[instance-level] Simulated time in seconds when the evidence was recorded."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "[class-level] Schema version of the evidence record format."
+    },
+    "evidence_type_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the evidence category (e.g. 'direct_observation', 'inferred', 'secondhand')."
+    },
+    "observation_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[instance-level] Identifiers of observations that constitute this evidence."
+    },
+    "supports_fact_id": {
+      "type": "string",
+      "description": "[class-level] Identifier of the ground-truth fact this evidence supports."
+    },
+    "description": {
+      "type": "string",
+      "description": "[instance-level] Human-readable description of the evidence."
+    },
+    "strength": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1.0,
+      "description": "[instance-level] Strength of this evidence (0 to 1)."
+    },
+    "supports_belief_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "[instance-level] Identifiers of beliefs this evidence supports."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "id": "ev_001",
+      "run_id": "run_20261029_alpha",
+      "agent_id": "wanderer_01",
+      "timestamp_s": 21.0,
+      "version": "1.0.0",
+      "evidence_type_id": "direct_observation",
+      "observation_ids": ["obs_002"],
+      "supports_fact_id": "fact_coconut_moves",
+      "description": "Observed the coconut change position after being touched.",
+      "strength": 0.9,
+      "supports_belief_ids": ["belief_001"]
+    }
+  ]
+}

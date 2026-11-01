@@ -16,9 +16,12 @@ Update documentation in the same change that makes it inaccurate. Do not use TOD
 
 ## Current repository state
 
-The repository contains an early Three.js browser prototype. It demonstrates continuous simulation, autonomous curiosity, object interaction, a day/night cycle, field notes, and an observer panel. It is a disposable behavioral prototype; Godot 4 with Jolt is the selected runtime for the project foundation.
-
-The browser prototype may remain temporarily as a behavioral reference. New world-runtime development should target Godot rather than extending its hand-written physics.
+Godot 4 with Jolt is the supported world runtime. The early Three.js
+browser prototype has been archived under `archive/apps/browser-prototype/`
+by [TODO-0003](docs/todo/done/TODO-0003-retire-or-archive-the-browser-prototype.md).
+It is retained only as a disposable behavioral reference; no build target
+or contributor instruction depends on it. New world-runtime development
+targets Godot rather than extending the prototype's hand-written physics.
 
 ## Prerequisites
 
@@ -63,18 +66,6 @@ Expected output includes `Godot Engine v4.x`.
 ```sh
 godot --headless --path apps/world --quit-after 1
 ```
-
-### Node.js (browser prototype)
-
-The disposable Three.js browser prototype requires Node.js 20.19 or newer.
-
-```sh
-cd apps/browser-prototype
-npm install
-npm run dev
-```
-
-Use `npm run build` to produce a static build. Do not place LLM credentials or other secrets in browser code.
 
 ## Monorepo and build interface
 

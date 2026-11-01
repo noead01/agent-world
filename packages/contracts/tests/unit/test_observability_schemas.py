@@ -170,6 +170,146 @@ class ConfigurationFingerprintIsStableForIdenticalConfig(unittest.TestCase):
         validator.validate(fp_b)
         self.assertNotEqual(fp_a["fingerprint"], fp_b["fingerprint"], "different effective configs must have different fingerprints")
 
+    def test_fingerprint_matches_canonical_computation(self):
+        """The fingerprint must equal SHA-256 of the canonical serialization."""
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        import hashlib
+
+        schema = load_json(os.path.join(SCHEMAS_DIR, "configuration-fingerprint.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        example = schema["examples"][0]
+        validator.validate(example)
+
+        # Canonical input: configuration_sources and component_versions,
+        # keys sorted lexicographically, compact JSON, UTF-8 encoded.
+        canonical_input = {
+            "configuration_sources": example["configuration_sources"],
+            "component_versions": example["component_versions"],
+        }
+        canonical_json = json.dumps(canonical_input, sort_keys=True, separators=(",", ":"))
+        expected = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+        self.assertEqual(example["fingerprint"], expected, "fingerprint must match canonical SHA-256 computation")
+
+
+class EnvelopeRunIdCrossCheck(unittest.TestCase):
+    """The envelope run_id must match correlation.run_id and validity.run_id."""
+
+    def test_envelope_run_id_matches_subrecords(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "observability-envelope.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        example = schema["examples"][0]
+        validator.validate(example)
+
+        run_id = example["run_id"]
+        self.assertEqual(run_id, example["correlation"]["run_id"],
+                         "envelope run_id must match correlation.run_id")
+        self.assertEqual(run_id, example["validity"]["run_id"],
+                         "envelope run_id must match validity.run_id")
+
+
+class TerminalStateTransitionsAreRejected(unittest.TestCase):
+    """Terminal validity states (invalid, aborted) cannot transition back to valid."""
+
+    def test_invalid_to_valid_rejected(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "run-validity.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        record = {
+            "run_id": "run_20261101_demo",
+            "validity": "valid",
+            "previous_validity": "invalid",
+            "transition_reason": "Attempted recovery from invalid state.",
+            "evaluated_at": "2026-11-01T06:05:00Z",
+            "evaluator_component": "health_monitor",
+            "evidence_summary": "Invalid-to-valid transition should be rejected.",
+            "invalidating_event_ids": [],
+            "version": "1.0.0",
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            validator.validate(record)
+
+    def test_aborted_to_valid_rejected(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "run-validity.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        record = {
+            "run_id": "run_20261101_demo",
+            "validity": "valid",
+            "previous_validity": "aborted",
+            "transition_reason": "Attempted recovery from aborted state.",
+            "evaluated_at": "2026-11-01T06:05:00Z",
+            "evaluator_component": "health_monitor",
+            "evidence_summary": "Aborted-to-valid transition should be rejected.",
+            "invalidating_event_ids": [],
+            "version": "1.0.0",
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            validator.validate(record)
+
+    def test_invalid_to_degraded_rejected(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "run-validity.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        record = {
+            "run_id": "run_20261101_demo",
+            "validity": "degraded",
+            "previous_validity": "invalid",
+            "transition_reason": "Attempted recovery from invalid state.",
+            "evaluated_at": "2026-11-01T06:05:00Z",
+            "evaluator_component": "health_monitor",
+            "evidence_summary": "Invalid-to-degraded transition should be rejected.",
+            "invalidating_event_ids": [],
+            "version": "1.0.0",
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            validator.validate(record)
+
+    def test_valid_to_degraded_accepted(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "run-validity.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        record = {
+            "run_id": "run_20261101_demo",
+            "validity": "degraded",
+            "previous_validity": "valid",
+            "transition_reason": "Telemetry exporter unavailable.",
+            "evaluated_at": "2026-11-01T06:05:00Z",
+            "evaluator_component": "health_monitor",
+            "evidence_summary": "Valid-to-degraded transition accepted.",
+            "invalidating_event_ids": [],
+            "version": "1.0.0",
+        }
+        validator.validate(record)  # should not raise
+
+
+class ComponentVersionSyntaxAccepted(unittest.TestCase):
+    """The component property must accept the documented subsystem:version syntax."""
+
+    def test_component_with_version_is_accepted(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "correlation-context.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        example = dict(schema["examples"][0])
+        example["component"] = "world:1.0.0"
+        validator.validate(example)  # should not raise
+
+    def test_component_without_version_is_accepted(self):
+        self.assertIsNotNone(jsonschema, "jsonschema is required")
+        schema = load_json(os.path.join(SCHEMAS_DIR, "correlation-context.schema.json"))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        example = dict(schema["examples"][0])
+        example["component"] = "world"
+        validator.validate(example)  # should not raise
+
 
 class ObservabilityEnvelopeCombinesAllThree(unittest.TestCase):
     """The observability envelope must combine correlation, validity, and fingerprint."""
@@ -181,15 +321,22 @@ class ObservabilityEnvelopeCombinesAllThree(unittest.TestCase):
         example = schema["examples"][0]
 
         validator.validate(example)
+        self.assertIn("run_id", example)
         self.assertIn("correlation", example)
         self.assertIn("validity", example)
         self.assertIn("fingerprint", example)
+        self.assertIn("content_capture_mode", example)
 
-        # Correlation run_id must match validity run_id.
+        # Envelope run_id must match correlation and validity run_ids.
         self.assertEqual(
+            example["run_id"],
             example["correlation"]["run_id"],
+            "envelope run_id must match correlation.run_id",
+        )
+        self.assertEqual(
+            example["run_id"],
             example["validity"]["run_id"],
-            "correlation and validity must reference the same run",
+            "envelope run_id must match validity.run_id",
         )
 
 

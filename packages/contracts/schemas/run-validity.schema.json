@@ -4,7 +4,12 @@
   "title": "Run Validity",
   "description": "Run-validity state machine. A run transitions through validity states as required records and invariants are evaluated. Defined in docs/observability.md 'Health and run validity'. Telemetry-export failure alone produces degraded observability, not an invalid experiment, provided the authoritative record remains intact.",
   "type": "object",
-  "required": ["run_id", "validity", "evaluated_at", "version"],
+  "required": [
+    "run_id",
+    "validity",
+    "evaluated_at",
+    "version"
+  ],
   "properties": {
     "run_id": {
       "type": "string",
@@ -13,12 +18,26 @@
     },
     "validity": {
       "type": "string",
-      "enum": ["valid", "degraded", "invalid", "aborted"],
+      "enum": [
+        "valid",
+        "degraded",
+        "invalid",
+        "aborted"
+      ],
       "description": "Current run-validity state."
     },
     "previous_validity": {
-      "type": ["string", "null"],
-      "enum": ["valid", "degraded", "invalid", "aborted", null],
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "valid",
+        "degraded",
+        "invalid",
+        "aborted",
+        null
+      ],
       "description": "Prior validity state before this transition (absent for the initial evaluation)."
     },
     "transition_reason": {
@@ -41,7 +60,10 @@
     },
     "invalidating_event_ids": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
       "description": "Identifiers of domain events that caused this validity state, when applicable."
     },
     "version": {
@@ -62,6 +84,52 @@
       "evidence_summary": "All required domain events and invariants are intact.",
       "invalidating_event_ids": [],
       "version": "1.0.0"
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "previous_validity": {
+            "const": "invalid"
+          }
+        },
+        "required": [
+          "previous_validity"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validity": {
+            "const": "invalid"
+          }
+        },
+        "required": [
+          "validity"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "previous_validity": {
+            "const": "aborted"
+          }
+        },
+        "required": [
+          "previous_validity"
+        ]
+      },
+      "then": {
+        "properties": {
+          "validity": {
+            "const": "aborted"
+          }
+        },
+        "required": [
+          "validity"
+        ]
+      }
     }
   ]
 }

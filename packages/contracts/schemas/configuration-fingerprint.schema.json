@@ -2,28 +2,47 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:agent-world:contracts:configuration-fingerprint:1.0.0",
   "title": "Configuration Fingerprint",
-  "description": "Stable fingerprint of an effective run configuration. Identical effective configurations produce identical fingerprints; any meaningful configuration change produces a different fingerprint. Recorded in run metadata per docs/observability.md 'Run overview'.",
+  "description": "Stable fingerprint of an effective run configuration. The fingerprint is the SHA-256 hex digest of the canonical JSON serialization of configuration_sources and component_versions. Canonical serialization: keys sorted lexicographically, arrays in listed order, no whitespace, UTF-8 encoded. Identical effective configurations produce identical fingerprints; any meaningful configuration change produces a different fingerprint. Recorded in run metadata per docs/observability.md Run overview.",
   "type": "object",
-  "required": ["fingerprint", "algorithm", "configuration_sources", "component_versions", "computed_at", "version"],
+  "required": [
+    "fingerprint",
+    "algorithm",
+    "configuration_sources",
+    "component_versions",
+    "computed_at",
+    "version"
+  ],
   "properties": {
     "fingerprint": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "SHA-256 hex digest of the canonical serialized effective configuration."
+      "description": "SHA-256 hex digest of the canonical serialized effective configuration (sorted keys, compact JSON, UTF-8)."
     },
     "algorithm": {
       "type": "string",
-      "enum": ["sha256"],
+      "enum": [
+        "sha256"
+      ],
       "description": "Hash algorithm used to compute the fingerprint."
     },
     "configuration_sources": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "sha256"],
+        "required": [
+          "path",
+          "sha256"
+        ],
         "properties": {
-          "path": { "type": "string", "description": "Repository-relative path to a configuration source." },
-          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 hex digest of the configuration source contents." }
+          "path": {
+            "type": "string",
+            "description": "Repository-relative path to a configuration source."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 hex digest of the configuration source contents."
+          }
         },
         "additionalProperties": false
       },
@@ -31,11 +50,27 @@
     },
     "component_versions": {
       "type": "object",
-      "required": ["godot", "jolt", "schemas"],
+      "required": [
+        "godot",
+        "jolt",
+        "schemas"
+      ],
       "properties": {
-        "godot": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Godot runtime version." },
-        "jolt": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Jolt physics version." },
-        "schemas": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Contract schema version." }
+        "godot": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Godot runtime version."
+        },
+        "jolt": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Jolt physics version."
+        },
+        "schemas": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Contract schema version."
+        }
       },
       "additionalProperties": false,
       "description": "Component versions included in the fingerprint."
@@ -54,13 +89,23 @@
   "additionalProperties": false,
   "examples": [
     {
-      "fingerprint": "a3f5c8e1d2b4f6a7c9e0b1d3f5a7c9e0b1d3f5a7c9e0b1d3f5a7c9e0b1d3f5a7",
+      "fingerprint": "f9994e12ab6baf8e749da76e52650495674b9d513a9bfc30fe3f9cbcf1eb7b6f",
       "algorithm": "sha256",
       "configuration_sources": [
-        { "path": "apps/world/project.godot", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
-        { "path": "packages/contracts/schemas/island-object-types.json", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+        {
+          "path": "apps/world/project.godot",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "packages/contracts/schemas/island-object-types.json",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
       ],
-      "component_versions": { "godot": "4.7.2", "jolt": "5.1.0", "schemas": "1.0.0" },
+      "component_versions": {
+        "godot": "4.7.2",
+        "jolt": "5.1.0",
+        "schemas": "1.0.0"
+      },
       "computed_at": "2026-11-01T06:00:00Z",
       "version": "1.0.0"
     }

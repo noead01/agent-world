@@ -45,8 +45,8 @@ class MainSceneConfigured(unittest.TestCase):
     def test_main_scene_references_existing_script(self):
         with open(MAIN_SCENE, encoding="utf-8") as fh:
             content = fh.read()
-        self.assertIn("res://src/main.gd", content)
-        self.assertTrue(os.path.isfile(MAIN_GD), "main.gd referenced by main.tscn must exist")
+        self.assertIn("res://src/room.gd", content)
+        self.assertTrue(os.path.isfile(os.path.join(WORLD_DIR, "src", "room.gd")), "room.gd referenced by main.tscn must exist")
 
 
 class JoltPhysicsSelected(unittest.TestCase):

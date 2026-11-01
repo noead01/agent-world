@@ -1,16 +1,15 @@
 ---
 id: TODO-0006
-priority: P0
-status: backlog
+priority: null
+status: in-progress
 type: feature
-title: "Build one physical room"
 dependencies:
   - TODO-0002
   - TODO-0004
 branch: null
 pull_request: null
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-01
 ---
 
 # Build one physical room
@@ -45,8 +44,8 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 ## Status history
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
+- 2026-11-01 — `in-progress`: Starting implementation of bounded room with static boundaries and four rigid objects.
 
 ## Notes
 
 Record blockers, scope changes, implementation decisions, and review context here.
-

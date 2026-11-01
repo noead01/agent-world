@@ -32,7 +32,7 @@ def check(condition: bool, message: str) -> bool:
     return condition
 
 
-def parse_object_states(output: str) -> dict:
+def parse_object_states(output: str) -> list:
     """Extract the final state of each object from Godot output."""
     objects = {}
     for line in output.splitlines():
@@ -68,7 +68,8 @@ def main() -> int:
 
     all_pass = True
 
-    # Run Godot with the room scene; internal quit() fires after 10s sim time
+    # Run Godot headless with the room scene; internal quit() fires after
+    # 10 seconds of simulated time
     print("== Running Godot against the room scene ==")
     try:
         proc = subprocess.Popen(
@@ -122,10 +123,6 @@ def main() -> int:
             0 <= obj["bounciness"] <= 1,
             f"{obj['instance_id']}: bounciness={obj['bounciness']} in [0,1]",
         )
-        all_pass &= check(
-            "dimensions_m" in str(obj) or True,  # dimensions in metadata
-            f"{obj['instance_id']}: dimensions defined",
-        )
     print()
 
     # Acceptance criterion 3: Objects fall, collide, settle, respond
@@ -138,7 +135,16 @@ def main() -> int:
         if all_fallen:
             print(f"    Object final Y positions: {[round(o['y'], 2) for o in objects]}")
 
-        # Objects should be at different heights based on material properties
+        # Objects should be resting on or near the floor (y ≈ -13.1, floor center at -13.5)
+        # Allow for material-dependent bounce height variation
+        on_floor = all(-15.0 < o["y"] < -5.0 for o in objects)
+        all_pass &= check(on_floor, "all objects rest on the floor (not passed through)")
+        if on_floor:
+            y_min = min(o["y"] for o in objects)
+            y_max = max(o["y"] for o in objects)
+            print(f"    All objects on floor (Y range: {y_min:.2f} to {y_max:.2f})")
+
+        # Objects should settle at different heights based on material properties
         y_positions = [o["y"] for o in objects]
         all_pass &= check(
             len(set(round(y, 1) for y in y_positions)) > 1,
@@ -170,7 +176,6 @@ def main() -> int:
             y_min = min(o["y"] for o in objects)
             y_max = max(o["y"] for o in objects)
             print(f"    All objects on floor (Y range: {y_min:.2f} to {y_max:.2f})")
-    print()
 
     if all_pass:
         msg = "DEMONSTRATION PASSED: room contains gravity, collisions, 4 objects with physical properties."

@@ -15,16 +15,18 @@ var fixed_timestep_hz: float = 60.0
 
 var objects: Array = []
 var _demo_timer: float = 0.0
-var _demo_duration: float = 30.0
+var _demo_duration: float = 10.0
 var _last_print_time: float = 0.0
+var _landed_count: int = 0
+
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
 	ProjectSettings.set_setting("physics/3d/physics_engine", "JoltPhysics")
 	ProjectSettings.set_setting("physics/common/physics_fps", fixed_timestep_hz)
-	# Set default gravity to zero; we apply gravity explicitly per object
-	# to avoid double-application (engine gravity + explicit impulse) which
-	# can cause tunneling through collision shapes.
-	ProjectSettings.set_setting("physics/3d/default_gravity", Vector3(0, 0, 0))
+	# Set gravity at runtime via PhysicsServer3D (project.godot's default_gravity
+	# may be overridden by physics_engine selection at startup)
+	var space: RID = get_world_3d().space
+	PhysicsServer3D.space_set_param(space, 0, gravity.y)
 
 	_build_room_boundaries()
 	_spawn_objects()
@@ -40,16 +42,20 @@ func _ready() -> void:
 	print("=================================")
 
 func _physics_process(delta: float) -> void:
-	# Apply explicit gravity to each object
+	# Apply gravity as force to non-sleeping objects so they fall and settle.
+	# Using force (not impulse) lets Godot compute correct acceleration:
+	# a = F / m = gravity * mass / mass = gravity.
+	# Applying only to non-sleeping objects lets settled bodies rest.
 	for obj in objects:
-		obj.apply_central_impulse(gravity * obj.mass * delta)
+		if not obj.is_sleeping():
+			obj.apply_central_force(gravity * obj.mass)
 
 	_demo_timer += delta
 	# Print status once per second without resetting the elapsed timer
 	if _demo_timer - _last_print_time >= 1.0:
 		_last_print_time = _demo_timer
 		var settled: Array[String] = get_settled_objects()
-		print("T+: settled=%d/%d" % [settled.size(), objects.size()])
+		print("T+: settled=%d/%d landed=%d" % [settled.size(), objects.size(), _landed_count])
 		for obj in objects:
 			var p: Vector3 = obj.position
 			var meta: Dictionary = obj.get_metadata()
@@ -163,7 +169,7 @@ func _spawn_objects() -> void:
 		objects.append(obj)
 
 		obj.body_entered.connect(func(other_body): _on_object_body_entered(obj, other_body))
-		obj.object_landed.connect(func(instance_id): object_landed.emit(instance_id))
+		obj.object_landed.connect(func(instance_id): _on_object_landed(instance_id))
 
 func _on_object_body_entered(obj, other_body: Node) -> void:
 	var other_id: String = ""
@@ -172,6 +178,10 @@ func _on_object_body_entered(obj, other_body: Node) -> void:
 	elif other_body.name:
 		other_id = other_body.name
 	object_collided.emit(obj.instance_id, other_id)
+
+func _on_object_landed(instance_id: String) -> void:
+	_landed_count += 1
+	object_landed.emit(instance_id)
 
 func apply_impulse(instance_id: String, impulse: Vector3) -> void:
 	var obj = _find_object(instance_id)

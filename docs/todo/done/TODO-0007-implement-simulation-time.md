@@ -1,7 +1,7 @@
 ---
 id: TODO-0007
 priority: P0
-status: in-progress
+status: done
 type: feature
 title: "Implement simulation time"
 dependencies:
@@ -31,10 +31,10 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 ## Definition of done
 
-- [ ] All acceptance criteria are satisfied and supported by automated or repeatable verification.
-- [ ] Relevant schemas, telemetry, documentation, ADRs, and adjacent backlog records are updated.
-- [ ] Failure modes are observable and no known regression invalidates experiment results.
-- [ ] The demonstration plan has been executed and its evidence is linked from the pull request.
+- [x] All acceptance criteria are satisfied and supported by automated or repeatable verification.
+- [x] Relevant schemas, telemetry, documentation, ADRs, and adjacent backlog records are updated.
+- [x] Failure modes are observable and no known regression invalidates experiment results.
+- [x] The demonstration plan has been executed and its evidence is linked from the pull request.
 
 ## Demonstration plan
 
@@ -46,8 +46,14 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
 - 2026-11-01 — `in-progress`: Starting implementation of fixed-step simulation time with pause/resume/reset/time-scale and day/night cycle.
+- 2026-11-01 — `done`: All acceptance criteria verified via tools/repository/demo_simulation_time.py; commits merged to main (b2794df).
 
 ## Notes
 
-Record blockers, scope changes, implementation decisions, and review context here.
+All three acceptance criteria verified via tools/repository/demo_simulation_time.py:
+  - Simulation time advances through fixed physics steps (tick and sim time monotonically increase)
+  - Pause freezes simulation behavior without corrupting state; resume continues coherently
+  - Reset and time scaling produce documented, observable lighting and clock behavior
+
+Implementation: apps/world/src/simulation_time.gd (SimulationTime class), integrated into apps/world/src/room.gd with day/night lighting animation on DirectionalLight3D.
 

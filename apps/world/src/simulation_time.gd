@@ -51,5 +51,8 @@ func reset() -> void:
 	_last_reported_hour = -1.0
 	simulation_reset.emit()
 
+func get_simulation_time() -> float:
+	return simulation_time
+
 func set_time_scale(scale: float) -> void:
 	time_scale = max(scale, 0.001)

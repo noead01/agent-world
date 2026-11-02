@@ -33,7 +33,7 @@ func _physics_process(delta: float) -> void:
 		if current_target_index < targets.size():
 			var target: Dictionary = targets[current_target_index]
 			var action_type: String = String(target.get("action_type", "move"))
-			var target_id: String = String(target.get("instance_id", ""))
+			var target_id: String = String(target.get("target_id", ""))
 			agent.execute_action(action_type, target_id)
 			controller_action_issued.emit(action_type, target_id)
 			current_target_index += 1

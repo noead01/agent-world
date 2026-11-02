@@ -320,6 +320,22 @@ func _spawn_agent() -> void:
 	add_child(_agent)
 	_agent.set_room(self, _sim_time)
 
+	# Add a collision shape so move_and_slide() can test against walls/objects
+	var agent_shape = CollisionShape3D.new()
+	var agent_capsule = CapsuleShape3D.new()
+	agent_capsule.radius = 0.3
+	agent_capsule.height = 1.0
+	agent_shape.shape = agent_capsule
+	_agent.add_child(agent_shape)
+
+	# Add visible geometry so the agent is visible in rendered output
+	var agent_mesh = MeshInstance3D.new()
+	var capsule_mesh = CapsuleMesh.new()
+	capsule_mesh.radius = 0.3
+	capsule_mesh.height = 1.0
+	agent_mesh.mesh = capsule_mesh
+	_agent.add_child(agent_mesh)
+
 	# Create and configure MockController
 	_mock_controller = _controller_template.new()
 	_mock_controller.agent = _agent
@@ -334,9 +350,13 @@ func _spawn_agent() -> void:
 		"obj_rubber_cylinder",
 	]
 	var target_list: Array[Dictionary] = []
+	# Lead with an intentional unreachable target to exercise reach-constraint failure immediately
+	target_list.append({"target_id": "obj_nonexistent", "action_type": "touch"})
+	# Follow with a wait action that completes immediately to demonstrate action_completed
+	target_list.append({"target_id": "", "action_type": "wait"})
 	for tid in target_ids:
-		target_list.append({"instance_id": tid, "action_type": "move"})
-		target_list.append({"instance_id": tid, "action_type": "touch"})
+		target_list.append({"target_id": tid, "action_type": "move"})
+		target_list.append({"target_id": tid, "action_type": "touch"})
 	_mock_controller.set_targets(target_list)
 
 	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])

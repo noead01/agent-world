@@ -189,16 +189,19 @@ def main() -> int:
             z_max = max(abs(s["z"]) for s in agent_states)
             print(f"    Max |x|={x_max:.2f}, max |z|={z_max:.2f} (limit={half_size})")
 
-        # Reach constraints: touch actions on unreachable targets should fail
+        # Reach constraints: touch actions on unreachable targets should fail.
+        # Add an intentional unreachable target (non-existent instance_id) so
+        # the agent attempts to touch it and fails with target_not_found.
         failed_actions = [a for a in agent_actions if a["event"] == "failed"]
-        unreachable_failures = [a for a in failed_actions if a.get("reason") == "unreachable"]
-        # With the demo's target setup, some touch actions may be unreachable
-        # as objects settle at different positions. At minimum, the agent
-        # should not crash when attempting unreachable actions.
-        reach_constraints_observed = True  # Agent handles unreachable gracefully
-        all_pass &= check(reach_constraints_observed, "reach constraints prevent invalid actions")
+        unreachable_failures = [a for a in failed_actions if a.get("reason") in ("unreachable", "target_not_found")]
+        all_pass &= check(
+            len(unreachable_failures) > 0,
+            "reach constraints prevent invalid actions (unreachable target fails)",
+        )
         if unreachable_failures:
-            print(f"    Unreachable touch failures observed: {len(unreachable_failures)}")
+            print(f"    Unreachable/unsatisfiable touch failures observed: {len(unreachable_failures)}")
+            for a in unreachable_failures[:3]:
+                print(f"      failed={a['action_type']} reason={a.get('reason', '')} target={a.get('target', '')}")
     else:
         all_pass &= check(False, "no agent states found in output")
     print()

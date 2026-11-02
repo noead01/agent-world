@@ -34,6 +34,12 @@ func _ready() -> void:
 	current_goal = ""
 
 func _physics_process(delta: float) -> void:
+	# Stop agent behavior while simulation time is paused
+	if _sim_time != null and _sim_time.is_paused:
+		velocity = Vector3(0, 0, 0)
+		move_and_slide()
+		return
+
 	# Update world_time_s from the room's SimulationTime (single source of truth)
 	if _sim_time != null and _sim_time.has_method("get_simulation_time"):
 		world_time_s = float(_sim_time.get_simulation_time())
@@ -97,7 +103,7 @@ func _find_object_in_room(node: Node, instance_id: String):
 	return null
 
 func execute_action(action_type_id: String, target_instance_id: String = "") -> void:
-	# Interrupt any current action
+	# Interrupt any current action and clear cached target
 	if _current_action.has("action_type_id"):
 		action_interrupted.emit(_current_action["action_type_id"])
 		print("AGENT_ACTION: interrupted=%s" % [_current_action["action_type_id"]])
@@ -107,6 +113,7 @@ func execute_action(action_type_id: String, target_instance_id: String = "") -> 
 		"target_instance_id": target_instance_id,
 		"started": false,
 	}
+	_target_object = null
 	action_started.emit(action_type_id, target_instance_id)
 	print("AGENT_ACTION: started=%s target=%s" % [action_type_id, target_instance_id])
 	status = "acting"
@@ -149,20 +156,28 @@ func _execute_current_action(delta: float) -> void:
 
 	# For move actions, keep moving
 	if action_type == "move":
-		if _target_object != null:
-			navigate_toward(_target_object.global_position, delta)
-			var dist: float = global_position.distance_to(_target_object.global_position)
-			if dist <= 0.1:
-				_current_action = {}
-				_target_object = null
-				action_completed.emit(action_type, "success")
-				print("AGENT_ACTION: completed=%s result=success" % [action_type])
-				status = "idle"
-		else:
+		if _target_object == null:
 			_current_action = {}
+			action_failed.emit(action_type, "target_not_found")
+			print("AGENT_ACTION: failed=%s reason=target_not_found" % [action_type])
+			status = "idle"
+			return
+		navigate_toward(_target_object.global_position, delta)
+		var dist: float = global_position.distance_to(_target_object.global_position)
+		if dist <= 0.1:
+			_current_action = {}
+			_target_object = null
 			action_completed.emit(action_type, "success")
 			print("AGENT_ACTION: completed=%s result=success" % [action_type])
 			status = "idle"
+		return
+
+	# Wait actions complete immediately
+	if action_type == "wait":
+		_current_action = {}
+		action_completed.emit(action_type, "success")
+		print("AGENT_ACTION: completed=%s result=success" % [action_type])
+		status = "idle"
 		return
 
 	# Unknown action type

@@ -225,15 +225,25 @@ def main() -> int:
     if has_completed:
         print(f"    {len(completed_actions)} action_completed events")
 
-    has_failed_or_interrupted = len(failed_actions) > 0 or len(interrupted_actions) > 0
-    # Observable lifecycle: started + completed events demonstrate the signals work.
-    # Failed/interrupted events demonstrate failure observability when they occur.
-    has_observable_lifecycle = has_started and has_completed
-    all_pass &= check(has_observable_lifecycle, "action lifecycle signals (started/completed) are observable")
-    if failed_actions:
+    # Require failure observability: the configured target sequence includes
+    # an intentional unreachable target (obj_nonexistent) so a failed event
+    # MUST be observed. If failure observability is broken, the demo fails.
+    has_failed = len(failed_actions) > 0
+    all_pass &= check(has_failed, "action_failed signal is emitted (failure observability)")
+    if has_failed:
         print(f"    {len(failed_actions)} action_failed events")
-    if interrupted_actions:
+        for a in failed_actions[:5]:
+            print(f"      failed={a['action_type']} reason={a.get('reason', '')}")
+
+    # Require interruption observability: if an action is interrupted during
+    # the sequence (e.g., by a new action replacing it), the interrupted
+    # event MUST be observed.
+    has_interrupted = len(interrupted_actions) > 0
+    all_pass &= check(has_interrupted, "action_interrupted signal is emitted (interruption observability)")
+    if has_interrupted:
         print(f"    {len(interrupted_actions)} action_interrupted events")
+        for a in interrupted_actions[:5]:
+            print(f"      interrupted={a['action_type']}")
     print()
 
     if all_pass:

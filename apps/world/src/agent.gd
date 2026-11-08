@@ -164,7 +164,8 @@ func _execute_current_action(delta: float) -> void:
 			return
 		navigate_toward(_target_object.global_position, delta)
 		var dist: float = global_position.distance_to(_target_object.global_position)
-		if dist <= 0.1:
+		# Complete when within reach distance (accounts for agent + target collision radii)
+		if dist <= reach_distance:
 			_current_action = {}
 			_target_object = null
 			action_completed.emit(action_type, "success")

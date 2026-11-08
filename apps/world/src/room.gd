@@ -31,6 +31,11 @@ var _demo_scale_time: float = 6.0
 var _demo_reset_time: float = 8.0
 var _demo_phase: String = "normal"
 
+var _agent
+var _mock_controller
+var _agent_template = preload("res://src/agent.gd")
+var _controller_template = preload("res://src/mock_controller.gd")
+
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
 	ProjectSettings.set_setting("physics/3d/physics_engine", "JoltPhysics")
@@ -50,6 +55,9 @@ func _ready() -> void:
 
 	# Find the directional light for day/night animation
 	_light = get_node("../DirectionalLight3D")
+
+	# Spawn the embodied agent
+	_spawn_agent()
 
 	set_process(true)
 	set_physics_process(true)
@@ -122,6 +130,15 @@ func _physics_process(delta: float) -> void:
 				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
 			])
 
+		# Print agent state
+		if _agent != null:
+			var agent_dict: Dictionary = _agent.get_agent_dict()
+			print("  AGENT: id=%s status=%s pos=(%.2f, %.2f, %.2f) heading=%.2f world_time=%.3f goal=%s" % [
+				agent_dict["id"], agent_dict["status"],
+				agent_dict["position"]["x"], agent_dict["position"]["y"], agent_dict["position"]["z"],
+				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
+			])
+
 	if _demo_timer >= _demo_duration:
 		print("=== Final Object States ===")
 		for obj in objects:
@@ -136,6 +153,13 @@ func _physics_process(delta: float) -> void:
 			_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick,
 			str(_sim_time.is_paused), _sim_time.time_scale, _sim_time.get_time_of_day()
 		])
+		if _agent != null:
+			var agent_dict: Dictionary = _agent.get_agent_dict()
+			print("  AGENT: id=%s status=%s pos=(%.3f, %.3f, %.3f) heading=%.2f world_time=%.3f goal=%s" % [
+				agent_dict["id"], agent_dict["status"],
+				agent_dict["position"]["x"], agent_dict["position"]["y"], agent_dict["position"]["z"],
+				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
+			])
 		print("==========================")
 		get_tree().quit()
 
@@ -289,3 +313,52 @@ func _animate_day_night(hour: float) -> void:
 	# Energy: full at noon, dim at dawn/dusk, minimal at night
 	var energy: float = clamp(0.2 + 0.8 * max(0.0, sin(angle)), 0.1, 1.0)
 	_light.energy = energy
+
+func _spawn_agent() -> void:
+	# Create and configure Agent
+	_agent = _agent_template.new()
+	add_child(_agent)
+	_agent.set_room(self, _sim_time)
+
+	# Add a collision shape so move_and_slide() can test against walls/objects
+	var agent_shape = CollisionShape3D.new()
+	var agent_capsule = CapsuleShape3D.new()
+	agent_capsule.radius = 0.3
+	agent_capsule.height = 1.0
+	agent_shape.shape = agent_capsule
+	_agent.add_child(agent_shape)
+
+	# Add visible geometry so the agent is visible in rendered output
+	var agent_mesh = MeshInstance3D.new()
+	var capsule_mesh = CapsuleMesh.new()
+	capsule_mesh.radius = 0.3
+	capsule_mesh.height = 1.0
+	agent_mesh.mesh = capsule_mesh
+	_agent.add_child(agent_mesh)
+
+	# Create and configure MockController
+	_mock_controller = _controller_template.new()
+	_mock_controller.agent = _agent
+	_mock_controller.set_physics_process(true)
+	add_child(_mock_controller)
+
+	# Set up deterministic action targets: move toward each object, then touch it
+	var target_ids: Array[String] = [
+		"obj_wood_cube",
+		"obj_metal_sphere",
+		"obj_glass_box",
+		"obj_rubber_cylinder",
+	]
+	var target_list: Array[Dictionary] = []
+	# Lead with an intentional unreachable target to exercise reach-constraint failure immediately
+	target_list.append({"target_id": "obj_nonexistent", "action_type": "touch"})
+	# Follow with a wait action that completes immediately to demonstrate action_completed
+	target_list.append({"target_id": "", "action_type": "wait"})
+	for tid in target_ids:
+		target_list.append({"target_id": tid, "action_type": "move"})
+		# Mark the first touch action to trigger interruption demo
+		var is_first_touch: bool = (tid == "obj_wood_cube")
+		target_list.append({"target_id": tid, "action_type": "touch", "interrupt_after": is_first_touch})
+	_mock_controller.set_targets(target_list)
+
+	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])

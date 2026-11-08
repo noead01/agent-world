@@ -10,7 +10,7 @@ from .schemas import (
     Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Error
 )
 from .protocol import (
-    parse_message, serialize_message, make_error, is_stale, PROTOCOL_VERSION, STALE_THRESHOLD
+    parse_message, serialize_message, PROTOCOL_VERSION
 )
 from .mock_agent import MockAgent
 
@@ -171,6 +171,13 @@ class AgentService:
         """Route incoming message to mock agent."""
         mock_agent = client["mock_agent"]
         
+        # Update world revision from WorldState first
+        if isinstance(msg, WorldState):
+            self.world_revision = msg.world_revision
+            self.simulation_tick = msg.simulation_tick
+            self.simulation_time = msg.simulation_time
+        
+        # Route to mock agent
         if isinstance(msg, WorldState):
             await mock_agent.on_world_state(msg)
         elif isinstance(msg, Observation):
@@ -178,6 +185,9 @@ class AgentService:
         elif isinstance(msg, Action):
             # World sends ActionResult back as Action with result field
             await mock_agent.on_action_result(msg)
+        elif isinstance(msg, Intention):
+            # World sends Intention (touch/inspect) - treat as action request
+            await mock_agent.on_action_result(msg)  # Reuse same handler for now
         elif isinstance(msg, Error):
             await mock_agent.on_error(msg)
             

@@ -73,6 +73,11 @@ func _on_message_received(msg: Dictionary) -> void:
 			observation_ready.emit(msg)
 		_:
 			pass
+	
+	# Print correlation for demo verification
+	if msg.has("correlation"):
+		var corr = msg["correlation"]
+		print("MSG_JSON: %s" % [JSON.stringify(msg)])
 
 func _on_hello_ack(msg: Dictionary) -> void:
 	var correlation = msg.get("correlation", {})
@@ -96,6 +101,24 @@ func _on_action_result(msg: Dictionary) -> void:
 	action_result_received.emit(msg)
 
 func _on_action_received(action: Dictionary) -> void:
+	# Check for stale request
+	var request_revision = action.get("request_world_revision", 0)
+	if request_revision < _current_world_revision - stale_threshold:
+		# Send STALE_REVISION error
+		var error_msg = {
+			"type": "Error",
+			"code": "STALE_REVISION",
+			"message": "Request based on obsolete world revision %d, current is %d" % [request_revision, _current_world_revision],
+			"request_id": action.get("id", ""),
+			"current_revision": _current_world_revision,
+			"correlation": _make_correlation()
+		}
+		if _websocket_client:
+			_websocket_client.send_message(error_msg)
+		print("ProtocolHandler: Rejected stale request %s (request_rev=%d, current_rev=%d)" % [action.get("id", ""), request_revision, _current_world_revision])
+		stale_request_rejected.emit(action.get("id", ""), _current_world_revision)
+		return
+	
 	# Emit signal for Room to handle - Room will call Agent.execute_action()
 	print("ProtocolHandler: Received action/intention: %s" % [action])
 	action_received.emit(action)
@@ -137,6 +160,7 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 		"correlation": correlation,
 	}
 	_websocket_client.send_message(state)
+	print("MSG_JSON: %s" % [JSON.stringify(state)])
 
 func send_observation(observation: Dictionary) -> void:
 	var msg = observation.duplicate()
@@ -152,6 +176,7 @@ func send_intention(intention: Dictionary) -> void:
 	_pending_requests[msg["id"]] = {"type": "intention", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
 	_websocket_client.send_message(msg)
 	intention_sent.emit(msg)
+	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 
 func send_action(action: Dictionary) -> void:
 	var msg = action.duplicate()
@@ -160,6 +185,7 @@ func send_action(action: Dictionary) -> void:
 	msg["request_world_revision"] = _current_world_revision
 	_pending_requests[msg["id"]] = {"type": "action", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
 	_websocket_client.send_message(msg)
+	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 
 func _make_correlation() -> Dictionary:
 	return {

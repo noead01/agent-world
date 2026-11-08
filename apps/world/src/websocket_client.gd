@@ -95,6 +95,7 @@ func _send_hello() -> void:
 		}
 	}
 	_send(hello)
+	print("MSG_JSON: %s" % [JSON.stringify(hello)])
 
 func _send_heartbeat() -> void:
 	var hb = {"type": "Heartbeat", "timestamp_s": Time.get_ticks_msec() / 1000.0}
@@ -156,6 +157,7 @@ func _send(message: Dictionary) -> void:
 	var err = _peer.send_text(text)
 	if err != OK:
 		print("WebSocketClient: send failed: %s" % [err])
+	print("MSG_JSON: %s" % [text])
 
 func close() -> void:
 	if _peer:

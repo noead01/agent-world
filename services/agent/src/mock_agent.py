@@ -2,6 +2,7 @@
 import asyncio
 import uuid
 import time
+import random
 from typing import Callable, Awaitable, Dict, Any, List, Optional
 from .schemas import (
     Intention, Action, WorldState, Observation, CorrelationContext, Hello, HelloAck
@@ -118,6 +119,11 @@ class MockAgent:
         
         correlation = self._make_correlation(world_revision, simulation_tick, simulation_time)
         request_id = f"req_{uuid.uuid4().hex[:12]}"
+        
+        # Artificial delay to simulate slow response (50% chance, 200ms = ~12 ticks at 60Hz)
+        # This causes the request_world_revision to become stale by the time the response is processed
+        if random.random() < 0.5:
+            await asyncio.sleep(0.2)
         
         if action_type in ["touch", "inspect"]:
             intention = Intention(

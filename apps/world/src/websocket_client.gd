@@ -23,7 +23,6 @@ var _request_id_counter: int = 0
 
 func _ready() -> void:
 	_peer = WebSocketPeer.new()
-	_peer.handshake_timeout = 10
 	set_process(true)
 	set_physics_process(false)
 
@@ -38,10 +37,14 @@ func _process(delta: float) -> void:
 		var packet = _peer.get_packet()
 		if packet:
 			var text = packet.get_string_from_utf8()
-			var msg = JSON.parse_string(text)
-			if msg.error == OK:
+			var parse_result = JSON.parse_string(text)
+			# In Godot 4, parse_string returns the parsed value on success, or Error code on failure
+			if parse_result is Dictionary or parse_result is Array:
+				var msg = parse_result
 				message_received.emit(msg)
 				_handle_incoming(msg)
+			else:
+				print("WebSocketClient: JSON parse error: %s" % [parse_result])
 	
 	# Connection state machine
 	match _state:
@@ -78,6 +81,18 @@ func _send_hello() -> void:
 		"run_id": "run_001",
 		"capabilities": ["observation", "intention", "action"],
 		"reconnect": _reconnect_attempt > 0,
+		"correlation": {
+			"experiment_id": "exp_autonomous_discovery_01",
+			"scenario_id": "first_benchmark_room",
+			"scenario_version": "1.0.0",
+			"run_id": "run_001",
+			"agent_id": "wanderer_01",
+			"world_revision": 0,
+			"simulation_tick": 0,
+			"simulation_time": 0.0,
+			"component": "world",
+			"component_version": "1.0.0"
+		}
 	}
 	_send(hello)
 

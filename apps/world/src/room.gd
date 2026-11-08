@@ -32,9 +32,11 @@ var _demo_reset_time: float = 8.0
 var _demo_phase: String = "normal"
 
 var _agent
-var _mock_controller
+var _ws_client
+var _protocol_handler
 var _agent_template = preload("res://src/agent.gd")
-var _controller_template = preload("res://src/mock_controller.gd")
+var _ws_client_template = preload("res://src/websocket_client.gd")
+var _protocol_handler_template = preload("res://src/protocol_handler.gd")
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -59,6 +61,28 @@ func _ready() -> void:
 	# Spawn the embodied agent
 	_spawn_agent()
 
+	# Create WebSocketClient for agent service communication
+	var ws_client = _ws_client_template.new()
+	ws_client.url = "ws://localhost:8765"
+	add_child(ws_client)
+	ws_client.connect_to_server()
+
+	# Create ProtocolHandler
+	var protocol_handler = _protocol_handler_template.new()
+	protocol_handler.agent_id = _agent.agent_id
+	protocol_handler.run_id = "run_001"
+	protocol_handler.set_websocket_client(ws_client)
+	add_child(protocol_handler)
+
+	# Store references
+	_ws_client = ws_client
+	_protocol_handler = protocol_handler
+
+	# Connect ProtocolHandler signals
+	_protocol_handler.action_received.connect(_on_action_received)
+	_protocol_handler.action_result_received.connect(_on_action_result)
+	_protocol_handler.stale_request_rejected.connect(_on_stale_request)
+
 	set_process(true)
 	set_physics_process(true)
 
@@ -73,6 +97,16 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	# Advance simulation time through fixed physics steps
 	_sim_time.tick(delta)
+
+	# Send world state via ProtocolHandler
+	if _protocol_handler:
+		_protocol_handler.tick_world_state(
+			_sim_time.simulation_tick,  # Using tick as world_revision
+			_sim_time.simulation_tick,
+			_sim_time.simulation_time,
+			_agent.get_agent_dict(),
+			_get_nearby_objects()
+		)
 
 	# Demo sequence: pause/resume/time-scale/reset at scheduled times
 	_demo_timer += delta
@@ -162,6 +196,38 @@ func _physics_process(delta: float) -> void:
 			])
 		print("==========================")
 		get_tree().quit()
+
+# ProtocolHandler signal handlers
+func _on_action_received(action: Dictionary) -> void:
+	# Agent service sent an Action or Intention command - execute it via Agent
+	if _agent:
+		# Handle both Action (action_type_id) and Intention (intention_type_id) message formats
+		var action_type = action.get("action_type_id", action.get("intention_type_id", ""))
+		var target_id = action.get("target_instance_id", "")
+		_agent.execute_action(action_type, target_id)
+
+func _on_action_result(result: Dictionary) -> void:
+	# ActionResult received (response to action we sent) - currently not used since agent service drives actions
+	print("Room: ActionResult received: %s" % [result])
+
+func _on_stale_request(request_id: String, current_revision: int) -> void:
+	print("Room: Stale request rejected, current_revision=%d" % [current_revision])
+	# Agent will re-plan automatically via agent service
+
+func _get_nearby_objects() -> Array:
+	var nearby = []
+	for obj in objects:
+		var meta = obj.get_metadata()
+		nearby.append({
+			"instance_id": meta["instance_id"],
+			"type_id": meta.get("type_id", "unknown"),
+			"position": {
+				"x": obj.position.x,
+				"y": obj.position.y,
+				"z": obj.position.z
+			}
+		})
+	return nearby
 
 func _build_room_boundaries() -> void:
 	_create_static_body("floor", Vector3(0, -half_size.y, 0), Vector3(half_size.x * 2, 0.2, half_size.z * 2))
@@ -336,29 +402,8 @@ func _spawn_agent() -> void:
 	agent_mesh.mesh = capsule_mesh
 	_agent.add_child(agent_mesh)
 
-	# Create and configure MockController
-	_mock_controller = _controller_template.new()
-	_mock_controller.agent = _agent
-	_mock_controller.set_physics_process(true)
-	add_child(_mock_controller)
-
-	# Set up deterministic action targets: move toward each object, then touch it
-	var target_ids: Array[String] = [
-		"obj_wood_cube",
-		"obj_metal_sphere",
-		"obj_glass_box",
-		"obj_rubber_cylinder",
-	]
-	var target_list: Array[Dictionary] = []
-	# Lead with an intentional unreachable target to exercise reach-constraint failure immediately
-	target_list.append({"target_id": "obj_nonexistent", "action_type": "touch"})
-	# Follow with a wait action that completes immediately to demonstrate action_completed
-	target_list.append({"target_id": "", "action_type": "wait"})
-	for tid in target_ids:
-		target_list.append({"target_id": tid, "action_type": "move"})
-		# Mark the first touch action to trigger interruption demo
-		var is_first_touch: bool = (tid == "obj_wood_cube")
-		target_list.append({"target_id": tid, "action_type": "touch", "interrupt_after": is_first_touch})
-	_mock_controller.set_targets(target_list)
+	# The external agent service now drives the agent by sending Action messages.
+	# ProtocolHandler receives Action messages and Room forwards them to Agent.execute_action().
+	# MockController has been removed.
 
 	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])

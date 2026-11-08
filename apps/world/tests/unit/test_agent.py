@@ -130,15 +130,19 @@ class MockControllerSignals(unittest.TestCase):
 
 
 class RoomIntegratesAgent(unittest.TestCase):
-    """Room must create and use Agent and MockController."""
+    """Room must create and use Agent, WebSocketClient, and ProtocolHandler."""
 
     def test_room_references_agent_gd(self):
         content = load_text(os.path.join(SRC_DIR, "room.gd"))
         self.assertIn("agent.gd", content)
 
-    def test_room_references_mock_controller_gd(self):
+    def test_room_references_websocket_client(self):
         content = load_text(os.path.join(SRC_DIR, "room.gd"))
-        self.assertIn("mock_controller.gd", content)
+        self.assertIn("WebSocketClient", content)
+
+    def test_room_references_protocol_handler(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("ProtocolHandler", content)
 
     def test_room_spawns_agent(self):
         content = load_text(os.path.join(SRC_DIR, "room.gd"))
@@ -147,6 +151,20 @@ class RoomIntegratesAgent(unittest.TestCase):
     def test_room_sets_agent_room(self):
         content = load_text(os.path.join(SRC_DIR, "room.gd"))
         self.assertIn("set_room", content)
+
+    def test_room_connects_protocol_signals(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("action_received.connect", content)
+        self.assertIn("stale_request_rejected.connect", content)
+
+    def test_room_sends_world_state(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("tick_world_state", content)
+
+    def test_room_handles_action_received(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("_on_action_received", content)
+        self.assertIn("execute_action", content)
 
 
 class AgentSchemaCompatibility(unittest.TestCase):

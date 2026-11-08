@@ -157,7 +157,23 @@ class MockAgent:
             await self.send(serialize_message(action))
             
         elif action_type == "wait":
-            # Wait completes immediately - just advance
+            # Wait completes immediately - send action that completes immediately
+            action = Action(
+                id=f"act_{uuid.uuid4().hex[:12]}",
+                run_id=self.run_id,
+                agent_id=self.agent_id,
+                timestamp_s=simulation_time,
+                version=PROTOCOL_VERSION,
+                action_type_id=action_type,
+                target_instance_id=target_id,
+                parameters={},
+                intention_id=None,
+                result="pending",
+                correlation=correlation,
+                request_world_revision=world_revision
+            )
+            self.pending_requests[action.id] = {"type": "action", "timestamp": time.time()}
+            await self.send(serialize_message(action))
             self.current_target_index += 1
             return
             

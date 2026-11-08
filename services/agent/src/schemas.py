@@ -38,6 +38,7 @@ class Observation(BaseModel):
 
 class Intention(BaseModel):
     """intention.schema.json"""
+    type: str = "Intention"
     id: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     run_id: str
     agent_id: str
@@ -55,6 +56,7 @@ class Intention(BaseModel):
 
 class Action(BaseModel):
     """action.schema.json"""
+    type: str = "Action"
     id: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     run_id: str
     agent_id: str

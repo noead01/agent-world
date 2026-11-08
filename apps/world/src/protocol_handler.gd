@@ -4,6 +4,7 @@ class_name ProtocolHandler
 
 signal observation_ready(observation: Dictionary)
 signal intention_sent(intention: Dictionary)
+signal action_received(action: Dictionary)
 signal action_result_received(result: Dictionary)
 signal stale_request_rejected(request_id: String, current_revision: int)
 
@@ -15,7 +16,7 @@ signal stale_request_rejected(request_id: String, current_revision: int)
 @export var stale_threshold: int = 5
 @export var world_state_interval_ticks: int = 5
 
-var _websocket_client: WebSocketClient
+var _websocket_client
 var _current_world_revision: int = 0
 var _current_simulation_tick: int = 0
 var _current_simulation_time: float = 0.0
@@ -23,13 +24,15 @@ var _tick_counter: int = 0
 var _pending_requests: Dictionary = {}  # request_id -> {type, correlation, timestamp}
 
 func _ready() -> void:
-	_websocket_client = get_node("../WebSocketClient") if has_node("../WebSocketClient") else null
+	# Only auto-discover WebSocketClient if not already set via set_websocket_client
+	if _websocket_client == null:
+		_websocket_client = get_node("../WebSocketClient") if has_node("../WebSocketClient") else null
 	if _websocket_client:
 		_websocket_client.message_received.connect(_on_message_received)
 		_websocket_client.connected.connect(_on_connected)
 		_websocket_client.disconnected.connect(_on_disconnected)
 
-func set_websocket_client(client: WebSocketClient) -> void:
+func set_websocket_client(client) -> void:
 	_websocket_client = client
 	if _websocket_client:
 		_websocket_client.message_received.connect(_on_message_received)
@@ -51,8 +54,19 @@ func _on_message_received(msg: Dictionary) -> void:
 		"WorldState":
 			_on_world_state(msg)
 		"Action":
-			# World receives ActionResult as Action with result field
-			_on_action_result(msg)
+			# Distinguish between Action command (from agent service) and ActionResult (response to our action)
+			# Agent service sends Action commands with result="pending"
+			# World sends ActionResults with result in ["success", "failure", "partial"]
+			var result = msg.get("result", "")
+			if result in ["success", "failure", "partial"]:
+				# This is an ActionResult response to an action we sent
+				_on_action_result(msg)
+			else:
+				# This is an Action command from the agent service (result="pending" or missing)
+				_on_action_received(msg)
+		"Intention":
+			# Intention from agent service - treat as action command for touch/inspect
+			_on_action_received(msg)
 		"Error":
 			_on_error(msg)
 		"Observation":
@@ -80,6 +94,11 @@ func _on_action_result(msg: Dictionary) -> void:
 	if request_id in _pending_requests:
 		_pending_requests.erase(request_id)
 	action_result_received.emit(msg)
+
+func _on_action_received(action: Dictionary) -> void:
+	# Emit signal for Room to handle - Room will call Agent.execute_action()
+	print("ProtocolHandler: Received action/intention: %s" % [action])
+	action_received.emit(action)
 
 func _on_error(msg: Dictionary) -> void:
 	var code = msg.get("code", "")

@@ -182,10 +182,15 @@ class AgentService:
             await mock_agent.on_error(msg)
             
     async def _world_tick_loop(self) -> None:
-        """Wait for WorldState messages from Godot (authoritative). 
-        This loop just maintains the connection - Godot drives simulation."""
+        """Process world state and issue actions for all connected agents."""
         while self._running:
-            await asyncio.sleep(1.0)  # Just keep alive, Godot drives simulation
+            # Tick all connected mock agents to issue actions based on latest world state
+            for agent_id, client_info in self.clients.items():
+                mock_agent = client_info["mock_agent"]
+                if mock_agent.last_world_state:
+                    # Use a small delta (1/60 = ~0.016s) to match physics tick rate
+                    await mock_agent.run_tick(1.0 / 60.0)
+            await asyncio.sleep(1.0 / 60.0)  # Run at 60Hz to match physics
             
     # Godot is authoritative for WorldState. Agent service receives WorldState
     # via _route_message and forwards to MockAgent. No simulation here.

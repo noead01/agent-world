@@ -356,7 +356,9 @@ func _spawn_agent() -> void:
 	target_list.append({"target_id": "", "action_type": "wait"})
 	for tid in target_ids:
 		target_list.append({"target_id": tid, "action_type": "move"})
-		target_list.append({"target_id": tid, "action_type": "touch"})
+		# Mark the first touch action to trigger interruption demo
+		var is_first_touch: bool = (tid == "obj_wood_cube")
+		target_list.append({"target_id": tid, "action_type": "touch", "interrupt_after": is_first_touch})
 	_mock_controller.set_targets(target_list)
 
 	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])

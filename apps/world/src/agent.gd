@@ -14,7 +14,8 @@ var agent_name: String = "Wanderer"
 var move_speed: float = 2.0
 var turn_speed: float = 1.5
 var reach_distance: float = 0.5
-var spawn_position: Vector3 = Vector3(0, 0.56, 1.5)
+# Spawn on room floor (y = -half_size.y + capsule_height/2 = -13.5 + 0.56 = -12.94)
+var spawn_position: Vector3 = Vector3(0, -12.94, 1.5)
 var heading_radians: float = 0.0
 
 @export_group("State")
@@ -34,15 +35,16 @@ func _ready() -> void:
 	current_goal = ""
 
 func _physics_process(delta: float) -> void:
+	# Update world_time_s from the room's SimulationTime (single source of truth)
+	# Do this BEFORE pause check so agent state timestamp matches authoritative clock
+	if _sim_time != null and _sim_time.has_method("get_simulation_time"):
+		world_time_s = float(_sim_time.get_simulation_time())
+
 	# Stop agent behavior while simulation time is paused
 	if _sim_time != null and _sim_time.is_paused:
 		velocity = Vector3(0, 0, 0)
 		move_and_slide()
 		return
-
-	# Update world_time_s from the room's SimulationTime (single source of truth)
-	if _sim_time != null and _sim_time.has_method("get_simulation_time"):
-		world_time_s = float(_sim_time.get_simulation_time())
 
 	# Execute current action if one is in progress
 	if _current_action.has("action_type_id"):

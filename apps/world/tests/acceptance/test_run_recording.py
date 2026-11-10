@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Acceptance test for append-only run recording."""
-import subprocess
 import tempfile
 import os
 import json
@@ -13,21 +12,6 @@ from agent_world_contracts.run_record import RunRecord
 def test_complete_run_recording():
     """Run a short simulation and verify the recorded run is valid and readable."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Set Godot user data dir to temp directory for run output
-        env = os.environ.copy()
-        env["GODOT_USER_DATA_DIR"] = tmpdir
-        
-        # Run the world for a short duration
-        # Note: This requires Godot to be installed and in PATH
-        world_path = os.path.join(os.path.dirname(__file__), "../../../apps/world")
-        project_path = os.path.join(world_path, "project.godot")
-        
-        # Run headless for 2 seconds (adjust demo duration in room.gd for test)
-        # For now, we'll test by checking if the recorder creates expected files
-        # when we manually invoke the recorder logic
-        
-        # Since we can't easily run Godot in CI without setup, we'll test the
-        # file format and validation logic instead
         run_dir = os.path.join(tmpdir, "runs", "run_test_001")
         os.makedirs(run_dir, exist_ok=True)
         

@@ -37,6 +37,8 @@ var _protocol_handler
 var _agent_template = preload("res://src/agent.gd")
 var _ws_client_template = preload("res://src/websocket_client.gd")
 var _protocol_handler_template = preload("res://src/protocol_handler.gd")
+var _event_recorder_template = preload("res://src/event_recorder.gd")
+var _event_recorder
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -54,6 +56,23 @@ func _ready() -> void:
 	_sim_time = _sim_time_template.new()
 	add_child(_sim_time)
 	_sim_time.time_of_day_changed.connect(_animate_day_night)
+
+	# Create and configure EventRecorder
+	_event_recorder = _event_recorder_template.new()
+	add_child(_event_recorder)
+	_event_recorder.run_failed.connect(_on_run_failed)
+
+	# Start recording
+	var run_id = "run_%s" % [Time.get_unix_time_from_system()]
+	var success = _event_recorder.start_run(
+		run_id,
+		"first_benchmark_room",
+		_agent.agent_id,
+		42,  # random_seed - should come from config
+		""   # config_fingerprint - TODO: compute from configs
+	)
+	if not success:
+		print("ERROR: Failed to start event recorder")
 
 	# Find the directional light for day/night animation
 	_light = get_node("../DirectionalLight3D")
@@ -195,6 +214,8 @@ func _physics_process(delta: float) -> void:
 				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
 			])
 		print("==========================")
+		if _event_recorder:
+			_event_recorder.end_run(_sim_time.simulation_time)
 		get_tree().quit()
 
 # ProtocolHandler signal handlers
@@ -213,6 +234,11 @@ func _on_action_result(result: Dictionary) -> void:
 func _on_stale_request(request_id: String, current_revision: int) -> void:
 	print("Room: Stale request rejected, current_revision=%d" % [current_revision])
 	# Agent will re-plan automatically via agent service
+
+# EventRecorder signal handlers
+func _on_run_failed(run_id: String, reason: String) -> void:
+	print("RUN FAILED: %s - %s" % [run_id, reason])
+	get_tree().quit()
 
 func _get_nearby_objects() -> Array:
 	var nearby = []
@@ -337,10 +363,28 @@ func _on_object_body_entered(obj, other_body: Node) -> void:
 	elif other_body.name:
 		other_id = other_body.name
 	object_collided.emit(obj.instance_id, other_id)
+	_append_domain_event("object_collided", obj.instance_id, {"other_id": other_id, "description": "Collision"})
 
 func _on_object_landed(instance_id: String) -> void:
 	_landed_count += 1
 	object_landed.emit(instance_id)
+	_append_domain_event("object_landed", instance_id, {"description": "Object landed"})
+
+func _append_domain_event(event_type_id: String, target_id: String, metadata: Dictionary) -> void:
+	if _event_recorder == null:
+		return
+	var event = {
+		"id": "evt_%s_%04d" % [event_type_id, _event_recorder.get_run_status().event_count + 1],
+		"run_id": _event_recorder.get_run_status().run_id,
+		"timestamp_s": _sim_time.simulation_time,
+		"version": "1.0.0",
+		"event_type_id": event_type_id,
+		"target_instance_id": target_id,
+		"description": metadata.get("description", ""),
+		"severity": "info",
+		"metadata": metadata,
+	}
+	_event_recorder.append_event(event)
 
 func apply_impulse(instance_id: String, impulse: Vector3) -> void:
 	var obj = _find_object(instance_id)

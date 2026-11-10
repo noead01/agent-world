@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/__init__.py
+src/agent_service.py
+src/mock_agent.py
+src/protocol.py
+src/schemas.py
+src/agent_world_agent.egg-info/PKG-INFO
+src/agent_world_agent.egg-info/SOURCES.txt
+src/agent_world_agent.egg-info/dependency_links.txt
+src/agent_world_agent.egg-info/requires.txt
+src/agent_world_agent.egg-info/top_level.txt

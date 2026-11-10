@@ -57,28 +57,36 @@ func _ready() -> void:
 	add_child(_sim_time)
 	_sim_time.time_of_day_changed.connect(_animate_day_night)
 
+	# Find the directional light for day/night animation
+	_light = get_node("../DirectionalLight3D")
+
+	# Spawn the embodied agent (must be before EventRecorder start_run to have agent_id)
+	_spawn_agent()
+
 	# Create and configure EventRecorder
 	_event_recorder = _event_recorder_template.new()
 	add_child(_event_recorder)
 	_event_recorder.run_failed.connect(_on_run_failed)
 
+	# Generate high-precision run_id using timestamp + milliseconds + random component
+	var timestamp_sec = Time.get_unix_time_from_system()
+	var timestamp_msec = Time.get_ticks_msec()
+	var random_component = randi() % 10000
+	var run_id = "run_%d_%03d_%04d" % [timestamp_sec, timestamp_msec % 1000, random_component]
+
+	# Derive random_seed from run_id for reproducibility
+	var random_seed = hash(run_id) & 0x7FFFFFFF
+
 	# Start recording
-	var run_id = "run_%s" % [Time.get_unix_time_from_system()]
 	var success = _event_recorder.start_run(
 		run_id,
 		"first_benchmark_room",
 		_agent.agent_id,
-		42,  # random_seed - should come from config
+		random_seed,
 		""   # config_fingerprint - TODO: compute from configs
 	)
 	if not success:
 		print("ERROR: Failed to start event recorder")
-
-	# Find the directional light for day/night animation
-	_light = get_node("../DirectionalLight3D")
-
-	# Spawn the embodied agent
-	_spawn_agent()
 
 	# Create WebSocketClient for agent service communication
 	var ws_client = _ws_client_template.new()
@@ -86,10 +94,10 @@ func _ready() -> void:
 	add_child(ws_client)
 	ws_client.connect_to_server()
 
-	# Create ProtocolHandler
+	# Create ProtocolHandler with generated run_id
 	var protocol_handler = _protocol_handler_template.new()
 	protocol_handler.agent_id = _agent.agent_id
-	protocol_handler.run_id = "run_001"
+	protocol_handler.run_id = run_id
 	protocol_handler.set_websocket_client(ws_client)
 	add_child(protocol_handler)
 
@@ -384,7 +392,9 @@ func _append_domain_event(event_type_id: String, target_id: String, metadata: Di
 		"severity": "info",
 		"metadata": metadata,
 	}
-	_event_recorder.append_event(event)
+	var success = _event_recorder.append_event(event)
+	if not success:
+		print("ERROR: Failed to append domain event: %s" % [event_type_id])
 
 func apply_impulse(instance_id: String, impulse: Vector3) -> void:
 	var obj = _find_object(instance_id)

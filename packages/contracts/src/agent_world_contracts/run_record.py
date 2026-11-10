@@ -1,0 +1,141 @@
+"""Run record loading and validation."""
+import json
+import os
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass, field
+from jsonschema import validate, ValidationError
+
+# Load schemas
+SCHEMA_DIR = Path(__file__).parent.parent.parent / "schemas"
+
+def _load_schema(name: str) -> Dict[str, Any]:
+    with open(SCHEMA_DIR / name) as f:
+        return json.load(f)
+
+EVENT_SCHEMA = _load_schema("event.schema.json")
+RUN_SCHEMA = _load_schema("run.schema.json")
+VALIDITY_SCHEMA = _load_schema("run-validity.schema.json")
+
+@dataclass
+class RunRecord:
+    run_id: str
+    scenario_id: str
+    version: str
+    agent_id: str
+    started_at: str
+    ended_at: Optional[str]
+    simulation_time_s: float
+    status: str
+    random_seed: int
+    config_fingerprint: str = ""
+    events: List[Dict[str, Any]] = field(default_factory=list)
+    validity_history: List[Dict[str, Any]] = field(default_factory=list)
+    run_dir: str = ""
+    
+    @classmethod
+    def load(cls, run_dir: str) -> "RunRecord":
+        run_path = Path(run_dir)
+        
+        # Load run metadata
+        with open(run_path / "run.json") as f:
+            run_meta = json.load(f)
+        
+        # Load events
+        events = []
+        events_path = run_path / "events.jsonl"
+        if events_path.exists():
+            with open(events_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        events.append(json.loads(line))
+        
+        # Load validity history
+        validity_history = []
+        validity_path = run_path / "validity.jsonl"
+        if validity_path.exists():
+            with open(validity_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        validity_history.append(json.loads(line))
+        
+        return cls(
+            run_id=run_meta["id"],
+            scenario_id=run_meta["scenario_id"],
+            version=run_meta["version"],
+            agent_id=run_meta["agent_id"],
+            started_at=run_meta["started_at"],
+            ended_at=run_meta.get("ended_at"),
+            simulation_time_s=run_meta["simulation_time_s"],
+            status=run_meta["status"],
+            random_seed=run_meta["random_seed"],
+            config_fingerprint=run_meta.get("config_fingerprint", ""),
+            events=events,
+            validity_history=validity_history,
+            run_dir=str(run_path),
+        )
+    
+    def validate(self) -> List[str]:
+        errors = []
+        
+        # Validate run metadata
+        try:
+            validate(instance=self._as_run_dict(), schema=RUN_SCHEMA)
+        except ValidationError as e:
+            errors.append(f"Run metadata: {e.message}")
+        
+        # Validate each event
+        for i, event in enumerate(self.events):
+            try:
+                validate(instance=event, schema=EVENT_SCHEMA)
+            except ValidationError as e:
+                errors.append(f"Event {i} ({event.get('id', 'unknown')}): {e.message}")
+        
+        # Validate validity history
+        for i, validity in enumerate(self.validity_history):
+            try:
+                validate(instance=validity, schema=VALIDITY_SCHEMA)
+            except ValidationError as e:
+                errors.append(f"Validity {i}: {e.message}")
+        
+        # Check run_id consistency
+        for event in self.events:
+            if event.get("run_id") != self.run_id:
+                errors.append(f"Event {event.get('id')} has mismatched run_id: {event.get('run_id')} != {self.run_id}")
+        
+        for validity in self.validity_history:
+            if validity.get("run_id") != self.run_id:
+                errors.append(f"Validity record has mismatched run_id: {validity.get('run_id')} != {self.run_id}")
+        
+        return errors
+    
+    def _as_run_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.run_id,
+            "scenario_id": self.scenario_id,
+            "version": self.version,
+            "agent_id": self.agent_id,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
+            "simulation_time_s": self.simulation_time_s,
+            "status": self.status,
+            "random_seed": self.random_seed,
+        }
+    
+    def get_events(self, event_type_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        if event_type_id is None:
+            return self.events
+        return [e for e in self.events if e.get("event_type_id") == event_type_id]
+    
+    def get_final_validity(self) -> Optional[str]:
+        if not self.validity_history:
+            return None
+        return self.validity_history[-1].get("validity")
+    
+    def is_valid(self) -> bool:
+        return self.get_final_validity() == "valid"
+    
+    def get_event_count(self) -> int:
+        return len(self.events)

@@ -17,13 +17,13 @@ var _events_file = null
 var _run_metadata: Dictionary = {}
 var _validity: String = "valid"
 var _event_count: int = 0
-var _schema_cache: Dictionary = {}
 
 func _ready() -> void:
 	# Ensure runs directory exists
 	var dir = DirAccess.open(runs_directory)
 	if dir == null:
-		DirAccess.make_dir_recursive_absolute(runs_directory)
+		if not DirAccess.make_dir_recursive_absolute(runs_directory):
+			push_error("EventRecorder: Failed to create runs directory: %s" % [runs_directory])
 
 func start_run(run_id: String, scenario_id: String, agent_id: String, random_seed: int, config_fingerprint: String = "") -> bool:
 	if _current_run_id != "":
@@ -72,7 +72,7 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 	run_file.close()
 	
 	# Write initial validity record
-	_write_validity("valid", null, "Run started", "event_recorder")
+	_write_validity("valid", "", "Run started", "event_recorder")
 	
 	_validity = "valid"
 	_event_count = 0
@@ -95,17 +95,18 @@ func append_event(event: Dictionary) -> bool:
 			return false
 	
 	# Ensure required correlation fields
-	if not event.has("run_id"):
-		event["run_id"] = _current_run_id
-	if not event.has("timestamp_s") and _run_metadata.has("simulation_time_s"):
-		event["timestamp_s"] = _run_metadata["simulation_time_s"]
+	var event_copy = event.duplicate(true)
+	if not event_copy.has("run_id"):
+		event_copy["run_id"] = _current_run_id
+	if not event_copy.has("timestamp_s") and _run_metadata.has("simulation_time_s"):
+		event_copy["timestamp_s"] = _run_metadata["simulation_time_s"]
 	
 	# Write event as JSONL line
-	var event_json = JSON.stringify(event)
+	var event_json = JSON.stringify(event_copy)
 	_events_file.store_line(event_json)
 	_event_count += 1
 	
-	event_appended.emit(event)
+	event_appended.emit(event_copy)
 	return true
 
 func end_run(simulation_time_s: float = 0.0) -> bool:
@@ -127,7 +128,7 @@ func end_run(simulation_time_s: float = 0.0) -> bool:
 	run_file.close()
 	
 	# Write final validity record
-	_write_validity("valid", "valid", "Run completed successfully", "event_recorder")
+	_write_validity("valid", _validity, "Run completed successfully", "event_recorder")
 	
 	# Close events file
 	if _events_file:
@@ -172,7 +173,6 @@ func _fail_run(reason: String) -> void:
 	_validity = "invalid"
 	
 	run_failed.emit(run_id, reason)
-	validity_changed.emit(run_id, "invalid", reason)
 
 func get_run_status() -> Dictionary:
 	return {
@@ -211,6 +211,8 @@ func _write_validity(validity: String, previous: String, reason: String, evaluat
 		validity_file.seek_end()
 		validity_file.store_line(JSON.stringify(validity_record))
 		validity_file.close()
+	else:
+		push_error("EventRecorder: Failed to open validity file: %s" % [validity_path])
 	
 	_validity = validity
 	validity_changed.emit(_current_run_id, validity, reason)

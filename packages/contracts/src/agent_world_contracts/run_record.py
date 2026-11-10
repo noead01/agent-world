@@ -38,7 +38,10 @@ class RunRecord:
         run_path = Path(run_dir)
         
         # Load run metadata
-        with open(run_path / "run.json") as f:
+        run_json_path = run_path / "run.json"
+        if not run_json_path.exists():
+            raise FileNotFoundError(f"run.json not found in {run_dir}")
+        with open(run_json_path) as f:
             run_meta = json.load(f)
         
         # Load events
@@ -139,3 +142,6 @@ class RunRecord:
     
     def get_event_count(self) -> int:
         return len(self.events)
+
+    def get_validity_history(self) -> List[Dict[str, Any]]:
+        return self.validity_history

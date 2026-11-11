@@ -511,7 +511,7 @@ func _append_domain_event(event_type_id: String, target_id: String, metadata: Di
 	var event = {
 		"id": "evt_%s_%04d" % [event_type_id, _event_recorder.get_run_status().event_count + 1],
 		"run_id": _event_recorder.get_run_status().run_id,
-		"timestamp_s": _sim_time.simulation_time,
+		"timestamp_s": _cumulative_run_time + _sim_time.simulation_time,
 		"version": "1.0.0",
 		"event_type_id": event_type_id,
 		"target_instance_id": target_id,

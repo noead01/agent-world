@@ -20,6 +20,14 @@ var _event_count: int = 0
 var _id_regex: RegEx
 var _version_regex: RegEx
 
+func _init() -> void:
+	# Pre-compile regex patterns so validation works even if start_run/append_event
+	# is called before the node enters the tree (before _ready()).
+	_id_regex = RegEx.new()
+	_id_regex.compile("^[a-z][a-z0-9_-]*$")
+	_version_regex = RegEx.new()
+	_version_regex.compile("^\\d+\\.\\d+\\.\\d+$")
+
 func _ready() -> void:
 	# Ensure runs directory exists
 	var dir = DirAccess.open(runs_directory)
@@ -27,15 +35,10 @@ func _ready() -> void:
 		if not DirAccess.make_dir_recursive_absolute(runs_directory):
 			push_error("EventRecorder: Failed to create runs directory: %s" % [runs_directory])
 
-	# Pre-compile regex patterns for validation
-	_id_regex = RegEx.new()
-	_id_regex.compile("^[a-z][a-z0-9_-]*$")
-	_version_regex = RegEx.new()
-	_version_regex.compile("^\\d+\\.\\d+\\.\\d+$")
-
 func _get_utc_timestamp() -> String:
-	# Get UTC time in ISO 8601 format with Z suffix (RFC3339)
-	var dt = Time.get_datetime_dict_from_system()
+	# Get UTC time in ISO 8601 format with Z suffix (RFC3339).
+	# get_datetime_dict_from_system(true) returns UTC; the default returns local time.
+	var dt = Time.get_datetime_dict_from_system(true)
 	return "%04d-%02d-%02dT%02d:%02d:%02dZ" % [dt["year"], dt["month"], dt["day"], dt["hour"], dt["minute"], dt["second"]]
 
 func start_run(run_id: String, scenario_id: String, agent_id: String, random_seed: int, config_fingerprint: String = "") -> bool:
@@ -101,18 +104,19 @@ func append_event(event: Dictionary) -> bool:
 		_fail_run("Events file not open")
 		return false
 	
-	# Validate event against schema if enabled
-	if validate_events:
-		if not _validate_event(event):
-			_fail_run("Event schema validation failed: %s" % [JSON.stringify(event)])
-			return false
-	
-	# Ensure required correlation fields
+	# Ensure required correlation fields before validation so events that omit
+	# them are still schema-valid once the recorder fills them in.
 	var event_copy = event.duplicate(true)
 	if not event_copy.has("run_id"):
 		event_copy["run_id"] = _current_run_id
 	if not event_copy.has("timestamp_s") and _run_metadata.has("simulation_time_s"):
 		event_copy["timestamp_s"] = _run_metadata["simulation_time_s"]
+	
+	# Validate event against schema if enabled
+	if validate_events:
+		if not _validate_event(event_copy):
+			_fail_run("Event schema validation failed: %s" % [JSON.stringify(event_copy)])
+			return false
 	
 	# Write event as JSONL line
 	var event_json = JSON.stringify(event_copy)
@@ -207,7 +211,7 @@ func get_events_path() -> String:
 		return ""
 	return "%s/events.jsonl" % [_current_run_path]
 
-func _write_validity(validity: String, previous: String, reason: String, evaluator: String) -> void:
+func _write_validity(validity: String, previous, reason: String, evaluator: String) -> void:
 	if _current_run_path == "":
 		return
 	
@@ -224,10 +228,12 @@ func _write_validity(validity: String, previous: String, reason: String, evaluat
 	}
 	
 	var validity_path = "%s/validity.jsonl" % [_current_run_path]
-	# Open read/write (no truncation) so each validity record is appended;
-	# fall back to WRITE (create) when the file does not exist yet.
-	var validity_file = FileAccess.open(validity_path, FileAccess.WRITE_READ)
-	if validity_file == null:
+	# Append without truncating: READ_WRITE opens an existing file without
+	# truncation, while WRITE creates it the first time. (WRITE_READ truncates.)
+	var validity_file = null
+	if FileAccess.file_exists(validity_path):
+		validity_file = FileAccess.open(validity_path, FileAccess.READ_WRITE)
+	else:
 		validity_file = FileAccess.open(validity_path, FileAccess.WRITE)
 	if validity_file == null:
 		push_error("EventRecorder: Failed to open validity file: %s" % [validity_path])

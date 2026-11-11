@@ -197,7 +197,8 @@ class AgentService:
         """Process world state and issue actions for all connected agents."""
         while self._running:
             # Tick all connected mock agents to issue actions based on latest world state
-            for agent_id, client_info in self.clients.items():
+            # Iterate over a snapshot to avoid RuntimeError if clients dict changes during iteration
+            for agent_id, client_info in list(self.clients.items()):
                 mock_agent = client_info["mock_agent"]
                 if mock_agent.last_world_state:
                     # Use a small delta (1/60 = ~0.016s) to match physics tick rate

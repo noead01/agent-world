@@ -5,7 +5,7 @@ import time
 import random
 from typing import Callable, Awaitable, Dict, Any, List, Optional
 from .schemas import (
-    Intention, Action, WorldState, Observation, CorrelationContext, Hello, HelloAck
+    Intention, Action, WorldState, Observation, CorrelationContext, Hello, HelloAck, Error
 )
 from .protocol import serialize_message, PROTOCOL_VERSION
 

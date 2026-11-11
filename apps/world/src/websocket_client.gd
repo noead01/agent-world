@@ -75,6 +75,11 @@ func _process(delta: float) -> void:
 				_on_disconnected("Connection closed during handshake")
 				
 		ConnectionState.CONNECTED:
+			# Detect closed peers while connected
+			if _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
+				_on_disconnected("Peer closed unexpectedly")
+				break
+			
 			_ping_timer += delta
 			if _ping_timer >= ping_interval_s:
 				_send_ping()

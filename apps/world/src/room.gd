@@ -91,6 +91,7 @@ func _ready() -> void:
 	# Create WebSocketClient for agent service communication
 	var ws_client = _ws_client_template.new()
 	ws_client.url = "ws://localhost:8765"
+	ws_client.configure_hello(run_id, _agent.agent_id)
 	add_child(ws_client)
 	ws_client.connect_to_server()
 

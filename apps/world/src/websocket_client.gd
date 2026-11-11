@@ -13,6 +13,13 @@ enum ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 @export var reconnect_max_attempts: int = 10
 @export var heartbeat_interval_s: float = 5.0
 
+# Configurable fields for Hello message
+var _hello_run_id: String = "run_001"
+var _hello_agent_id: String = "wanderer_01"
+var _hello_experiment_id: String = "exp_autonomous_discovery_01"
+var _hello_scenario_id: String = "first_benchmark_room"
+var _hello_scenario_version: String = "1.0.0"
+
 var _peer: WebSocketPeer
 var _state: ConnectionState = ConnectionState.DISCONNECTED
 var _reconnect_attempt: int = 0
@@ -25,6 +32,16 @@ func _ready() -> void:
 	_peer = WebSocketPeer.new()
 	set_process(true)
 	set_physics_process(false)
+
+func configure_hello(run_id: String, agent_id: String, experiment_id: String = "", scenario_id: String = "", scenario_version: String = "") -> void:
+	_hello_run_id = run_id
+	_hello_agent_id = agent_id
+	if experiment_id != "":
+		_hello_experiment_id = experiment_id
+	if scenario_id != "":
+		_hello_scenario_id = scenario_id
+	if scenario_version != "":
+		_hello_scenario_version = scenario_version
 
 func _process(delta: float) -> void:
 	if _peer == null:
@@ -63,8 +80,9 @@ func _process(delta: float) -> void:
 			if _heartbeat_timer >= heartbeat_interval_s:
 				_send_heartbeat()
 				_heartbeat_timer = 0.0
-				
+			
 			# Check for missed pongs (3 intervals = 15s)
+			# Use WebSocket peer's built-in ping/pong tracking instead of application-level heartbeat
 			var now = Time.get_ticks_msec() / 1000.0
 			if now - _last_pong > heartbeat_interval_s * 3:
 				_on_disconnected("Heartbeat timeout")
@@ -77,16 +95,16 @@ func _send_hello() -> void:
 	var hello = {
 		"type": "Hello",
 		"protocol_version": "1.0.0",
-		"agent_id": "wanderer_01",  # Will be overridden by ProtocolHandler
-		"run_id": "run_001",
+		"agent_id": _hello_agent_id,
+		"run_id": _hello_run_id,
 		"capabilities": ["observation", "intention", "action"],
 		"reconnect": _reconnect_attempt > 0,
 		"correlation": {
-			"experiment_id": "exp_autonomous_discovery_01",
-			"scenario_id": "first_benchmark_room",
-			"scenario_version": "1.0.0",
-			"run_id": "run_001",
-			"agent_id": "wanderer_01",
+			"experiment_id": _hello_experiment_id,
+			"scenario_id": _hello_scenario_id,
+			"scenario_version": _hello_scenario_version,
+			"run_id": _hello_run_id,
+			"agent_id": _hello_agent_id,
 			"world_revision": 0,
 			"simulation_tick": 0,
 			"simulation_time": 0.0,
@@ -132,12 +150,12 @@ func _schedule_reconnect() -> void:
 
 func _do_reconnect(delay: float) -> void:
 	await get_tree().create_timer(delay).timeout
+	# Always attempt reconnection if still disconnected
 	if _state == ConnectionState.DISCONNECTED:
-		_state = ConnectionState.RECONNECTING
 		connect_to_server()
 
 func connect_to_server() -> void:
-	if _state != ConnectionState.DISCONNECTED:
+	if _state != ConnectionState.DISCONNECTED and _state != ConnectionState.RECONNECTING:
 		return
 	_state = ConnectionState.CONNECTING
 	var err = _peer.connect_to_url(url)

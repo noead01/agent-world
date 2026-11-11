@@ -38,12 +38,14 @@ class MockAgent:
         self.cooldown_timer = 0.0
         self.last_world_state: Optional[WorldState] = None
         self.pending_requests: Dict[str, Dict] = {}  # request_id -> {type, timestamp}
+        self._action_in_progress: bool = False  # Track if action is awaiting result
         
     def set_targets(self, targets: List[Dict[str, Any]]) -> None:
         """Set the action target sequence."""
         self.targets = targets
         self.current_target_index = 0
         self.cooldown_timer = 0.0
+        self._action_in_progress = False
         
     def _make_correlation(self, world_revision: int, simulation_tick: int, simulation_time: float) -> CorrelationContext:
         """Create correlation context for outgoing messages."""
@@ -82,6 +84,9 @@ class MockAgent:
         # Clear pending request
         if action.id in self.pending_requests:
             del self.pending_requests[action.id]
+        # Mark action as complete and advance to next target
+        self._action_in_progress = False
+        self.current_target_index += 1
         # Issue next action after cooldown
         self.cooldown_timer = 0.5  # 500ms cooldown
     
@@ -99,6 +104,10 @@ class MockAgent:
         """Main tick - called periodically to issue actions."""
         if self.cooldown_timer > 0:
             self.cooldown_timer -= delta
+            return
+            
+        # Don't issue next action if one is already in progress
+        if self._action_in_progress:
             return
             
         if self.current_target_index < len(self.targets) and self.last_world_state:
@@ -180,8 +189,10 @@ class MockAgent:
             )
             self.pending_requests[action.id] = {"type": "action", "timestamp": time.time()}
             await self.send(serialize_message(action))
+            # For wait, advance immediately since it completes instantly
             self.current_target_index += 1
             return
             
-        self.current_target_index += 1
+        # Mark action as in progress (except wait which completes immediately)
+        self._action_in_progress = True
         self.cooldown_timer = 0.5

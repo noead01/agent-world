@@ -17,6 +17,8 @@ var _events_file = null
 var _run_metadata: Dictionary = {}
 var _validity: String = "valid"
 var _event_count: int = 0
+var _id_regex: RegEx
+var _version_regex: RegEx
 
 func _ready() -> void:
 	# Ensure runs directory exists
@@ -24,6 +26,12 @@ func _ready() -> void:
 	if dir == null:
 		if not DirAccess.make_dir_recursive_absolute(runs_directory):
 			push_error("EventRecorder: Failed to create runs directory: %s" % [runs_directory])
+
+	# Pre-compile regex patterns for validation
+	_id_regex = RegEx.new()
+	_id_regex.compile("^[a-z][a-z0-9_-]*$")
+	_version_regex = RegEx.new()
+	_version_regex.compile("^\\d+\\.\\d+\\.\\d+$")
 
 func start_run(run_id: String, scenario_id: String, agent_id: String, random_seed: int, config_fingerprint: String = "") -> bool:
 	if _current_run_id != "":
@@ -49,12 +57,13 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		return false
 	
 	# Initialize run metadata
+	var now_str = Time.get_datetime_string_from_system()
 	_run_metadata = {
 		"id": run_id,
 		"scenario_id": scenario_id,
 		"version": "1.0.0",
 		"agent_id": agent_id,
-		"started_at": Time.get_datetime_dict_from_system(),
+		"started_at": now_str,
 		"ended_at": null,
 		"simulation_time_s": 0.0,
 		"status": "running",
@@ -115,7 +124,8 @@ func end_run(simulation_time_s: float = 0.0) -> bool:
 		return false
 	
 	# Update run metadata
-	_run_metadata["ended_at"] = Time.get_datetime_dict_from_system()
+	var now_str = Time.get_datetime_string_from_system()
+	_run_metadata["ended_at"] = now_str
 	_run_metadata["simulation_time_s"] = simulation_time_s
 	_run_metadata["status"] = "completed"
 	
@@ -150,7 +160,8 @@ func _fail_run(reason: String) -> void:
 		return
 	
 	# Update run metadata to aborted
-	_run_metadata["ended_at"] = Time.get_datetime_dict_from_system()
+	var now_str = Time.get_datetime_string_from_system()
+	_run_metadata["ended_at"] = now_str
 	_run_metadata["status"] = "aborted"
 	
 	var run_path = "%s/run.json" % [_current_run_path]
@@ -196,7 +207,7 @@ func _write_validity(validity: String, previous: String, reason: String, evaluat
 		"validity": validity,
 		"previous_validity": previous,
 		"transition_reason": reason,
-		"evaluated_at": Time.get_datetime_dict_from_system(),
+		"evaluated_at": Time.get_datetime_string_from_system(),
 		"evaluator_component": evaluator,
 		"evidence_summary": reason,
 		"invalidating_event_ids": [],
@@ -204,15 +215,15 @@ func _write_validity(validity: String, previous: String, reason: String, evaluat
 	}
 	
 	var validity_path = "%s/validity.jsonl" % [_current_run_path]
-	var validity_file = FileAccess.open(validity_path, FileAccess.WRITE_READ)
+	# Use WRITE mode with append by seeking to end - avoids truncation of WRITE_READ
+	var validity_file = FileAccess.open(validity_path, FileAccess.WRITE)
 	if validity_file == null:
-		validity_file = FileAccess.open(validity_path, FileAccess.WRITE)
-	if validity_file:
-		validity_file.seek_end()
-		validity_file.store_line(JSON.stringify(validity_record))
-		validity_file.close()
-	else:
 		push_error("EventRecorder: Failed to open validity file: %s" % [validity_path])
+		return
+	
+	validity_file.seek_end()
+	validity_file.store_line(JSON.stringify(validity_record))
+	validity_file.close()
 	
 	_validity = validity
 	validity_changed.emit(_current_run_id, validity, reason)
@@ -225,15 +236,13 @@ func _validate_event(event: Dictionary) -> bool:
 			push_error("EventRecorder: Missing required field '%s' in event" % [field])
 			return false
 	
-	# Validate id pattern
-	var id_pattern = "^[a-z][a-z0-9_-]*$"
-	if not event["id"].match(id_pattern):
+	# Validate id pattern using pre-compiled RegEx (String.match uses wildcard, not regex)
+	if not _id_regex.search(event["id"]):
 		push_error("EventRecorder: Invalid event id format: %s" % [event["id"]])
 		return false
 	
-	# Validate version pattern
-	var version_pattern = "^\\d+\\.\\d+\\.\\d+$"
-	if not event["version"].match(version_pattern):
+	# Validate version pattern using pre-compiled RegEx
+	if not _version_regex.search(event["version"]):
 		push_error("EventRecorder: Invalid version format: %s" % [event["version"]])
 		return false
 	

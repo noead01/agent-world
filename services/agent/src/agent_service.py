@@ -78,8 +78,15 @@ class AgentService:
         agent_id = None
         try:
             async for message in websocket:
-                msg = parse_message(message)
-                
+                # A single malformed message must not tear down the connection;
+                # report a protocol error and keep serving the client.
+                try:
+                    msg = parse_message(message)
+                except Exception as e:
+                    err = make_error("PROTOCOL_ERROR", f"Invalid message: {e}")
+                    await websocket.send(serialize_message(err))
+                    continue
+
                 if isinstance(msg, Hello):
                     agent_id = msg.agent_id
                     await self._handle_hello(websocket, msg)

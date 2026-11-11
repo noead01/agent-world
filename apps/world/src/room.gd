@@ -31,6 +31,7 @@ var _demo_scale_time: float = 6.0
 var _demo_reset_time: float = 8.0
 var _demo_phase: String = "normal"
 var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
+var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
 
 var _agent
 var _ws_client
@@ -59,7 +60,7 @@ func _ready() -> void:
 	_sim_time.time_of_day_changed.connect(_animate_day_night)
 
 	# Find the directional light for day/night animation
-	_light = get_node("../DirectionalLight3D")
+	_light = get_node_or_null("DirectionalLight3D")
 
 	# Spawn the embodied agent (must be before EventRecorder start_run to have agent_id)
 	_spawn_agent()
@@ -88,6 +89,33 @@ func _ready() -> void:
 	)
 	if not success:
 		print("ERROR: Failed to start event recorder")
+	else:
+		# Persist the initial run boundary before any other activity so the
+		# authoritative timeline can reconstruct its starting conditions.
+		var initial_objects: Array = []
+		for obj in objects:
+			var meta: Dictionary = obj.get_metadata()
+			var p: Vector3 = obj.position
+			initial_objects.append({
+				"instance_id": meta["instance_id"],
+				"type_id": meta.get("type_id", "unknown"),
+				"position": {"x": p.x, "y": p.y, "z": p.z},
+				"sleeping": obj.is_sleeping(),
+			})
+		var initial_agent_state: Dictionary = {}
+		if _agent != null:
+			var agent_dict: Dictionary = _agent.get_agent_dict()
+			initial_agent_state = {
+				"id": agent_dict["id"],
+				"status": agent_dict["status"],
+				"position": agent_dict["position"],
+				"heading_radians": agent_dict["heading_radians"],
+			}
+		_append_domain_event("run_started", "", {
+			"description": "Simulation started",
+			"initial_objects": initial_objects,
+			"initial_agent_state": initial_agent_state,
+		})
 
 	# Create WebSocketClient for agent service communication
 	var ws_client = _ws_client_template.new()
@@ -129,8 +157,11 @@ func _physics_process(delta: float) -> void:
 
 	# Send world state via ProtocolHandler
 	if _protocol_handler:
+		# Use a monotonic revision that never resets with the simulation, so a
+		# response delayed across a reset cannot appear newer than the reset world.
+		_world_revision += 1
 		_protocol_handler.tick_world_state(
-			_sim_time.simulation_tick,  # Using tick as world_revision
+			_world_revision,
 			_sim_time.simulation_tick,
 			_sim_time.simulation_time,
 			_agent.get_agent_dict(),
@@ -288,6 +319,7 @@ func _on_run_failed(run_id: String, reason: String) -> void:
 func _on_agent_action_started(action_type_id: String, target_instance_id: String) -> void:
 	if _protocol_handler:
 		var action = {
+			"type": "Action",
 			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
@@ -310,6 +342,7 @@ func _on_agent_action_started(action_type_id: String, target_instance_id: String
 func _on_agent_action_completed(action_type_id: String, result: String) -> void:
 	if _protocol_handler:
 		var action = {
+			"type": "Action",
 			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
@@ -333,6 +366,7 @@ func _on_agent_action_completed(action_type_id: String, result: String) -> void:
 func _on_agent_action_failed(action_type_id: String, reason: String) -> void:
 	if _protocol_handler:
 		var action = {
+			"type": "Action",
 			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
@@ -356,6 +390,7 @@ func _on_agent_action_failed(action_type_id: String, reason: String) -> void:
 func _on_agent_action_interrupted(action_type_id: String) -> void:
 	if _protocol_handler:
 		var action = {
+			"type": "Action",
 			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
@@ -559,7 +594,7 @@ func _animate_day_night(hour: float) -> void:
 	_light.rotation_degrees = Vector3(-90.0 + elevation * 45.0, azimuth * 30.0, 0.0)
 	# Energy: full at noon, dim at dawn/dusk, minimal at night
 	var energy: float = clamp(0.2 + 0.8 * max(0.0, sin(angle)), 0.1, 1.0)
-	_light.energy = energy
+	_light.light_energy = energy
 
 func _spawn_agent() -> void:
 	# Create and configure Agent

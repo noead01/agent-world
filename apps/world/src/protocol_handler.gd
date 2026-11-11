@@ -25,19 +25,18 @@ var _pending_requests: Dictionary = {}  # request_id -> {type, correlation, time
 
 func _ready() -> void:
 	# Only auto-discover WebSocketClient if not already set via set_websocket_client
-	if _websocket_client == null:
-		_websocket_client = get_node("../WebSocketClient") if has_node("../WebSocketClient") else null
-	if _websocket_client:
-		_websocket_client.message_received.connect(_on_message_received)
-		_websocket_client.connected.connect(_on_connected)
-		_websocket_client.disconnected.connect(_on_disconnected)
+	if _websocket_client == null and has_node("../WebSocketClient"):
+		set_websocket_client(get_node("../WebSocketClient"))
 
 func set_websocket_client(client) -> void:
 	_websocket_client = client
 	if _websocket_client:
-		_websocket_client.message_received.connect(_on_message_received)
-		_websocket_client.connected.connect(_on_connected)
-		_websocket_client.disconnected.connect(_on_disconnected)
+		if not _websocket_client.message_received.is_connected(_on_message_received):
+			_websocket_client.message_received.connect(_on_message_received)
+		if not _websocket_client.connected.is_connected(_on_connected):
+			_websocket_client.connected.connect(_on_connected)
+		if not _websocket_client.disconnected.is_connected(_on_disconnected):
+			_websocket_client.disconnected.connect(_on_disconnected)
 
 func _on_connected(server_id: String) -> void:
 	print("ProtocolHandler: Connected to agent service: %s" % [server_id])

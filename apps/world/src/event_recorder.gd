@@ -32,7 +32,7 @@ func _ready() -> void:
 	# Ensure runs directory exists
 	var dir = DirAccess.open(runs_directory)
 	if dir == null:
-		if not DirAccess.make_dir_recursive_absolute(runs_directory):
+		if DirAccess.make_dir_recursive_absolute(runs_directory) != OK:
 			push_error("EventRecorder: Failed to create runs directory: %s" % [runs_directory])
 
 func _get_utc_timestamp() -> String:
@@ -45,25 +45,33 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 	if _current_run_id != "":
 		push_error("EventRecorder: Run already in progress: %s" % [_current_run_id])
 		return false
-	
-	_current_run_id = run_id
-	_current_run_path = "%s/%s" % [runs_directory, run_id]
-	
-	# Create run directory
-	var dir = DirAccess.open(_current_run_path)
-	if dir == null:
-		dir = DirAccess.make_dir_recursive_absolute(_current_run_path)
-	if dir == null:
-		_fail_run("Failed to create run directory: %s" % [_current_run_path])
+
+	var run_path = "%s/%s" % [runs_directory, run_id]
+
+	# Refuse to reuse an existing run directory: opening events.jsonl with WRITE
+	# would truncate an already-persisted authoritative run record.
+	if DirAccess.open(run_path) != null:
+		push_error("EventRecorder: Refusing to overwrite existing run record: %s" % [run_path])
 		return false
-	
+
+	_current_run_id = run_id
+	_current_run_path = run_path
+
+	# Create run directory
+	var dir_error = DirAccess.make_dir_recursive_absolute(_current_run_path)
+	if dir_error != OK:
+		push_error("EventRecorder: Failed to create run directory: %s (error %d)" % [_current_run_path, dir_error])
+		_current_run_id = ""
+		_current_run_path = ""
+		return false
+
 	# Open events file for append-only writing
 	var events_path = "%s/events.jsonl" % [_current_run_path]
 	_events_file = FileAccess.open(events_path, FileAccess.WRITE)
 	if _events_file == null:
 		_fail_run("Failed to open events file: %s" % [events_path])
 		return false
-	
+
 	# Initialize run metadata (config_fingerprint not in run.schema.json)
 	var now_str = _get_utc_timestamp()
 	_run_metadata = {
@@ -77,19 +85,26 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		"status": "running",
 		"random_seed": random_seed,
 	}
-	
-	# Write run metadata
-	var run_path = "%s/run.json" % [_current_run_path]
-	var run_file = FileAccess.open(run_path, FileAccess.WRITE)
+
+	# Write run metadata and verify the write actually succeeded
+	var metadata_path = "%s/run.json" % [_current_run_path]
+	var run_file = FileAccess.open(metadata_path, FileAccess.WRITE)
 	if run_file == null:
-		_fail_run("Failed to open run metadata file: %s" % [run_path])
+		_fail_run("Failed to open run metadata file: %s" % [metadata_path])
 		return false
 	run_file.store_string(JSON.stringify(_run_metadata, "\t"))
+	run_file.flush()
+	var metadata_error = run_file.get_error()
 	run_file.close()
-	
+	if metadata_error != OK:
+		_fail_run("Failed to write run metadata: %s (error %d)" % [metadata_path, metadata_error])
+		return false
+
 	# Write initial validity record (previous_validity = null for initial)
-	_write_validity("valid", null, "Run started", "event_recorder")
-	
+	if not _write_validity("valid", null, "Run started", "event_recorder"):
+		_fail_run("Failed to write initial validity record")
+		return false
+
 	_validity = "valid"
 	_event_count = 0
 	run_started.emit(run_id)
@@ -148,10 +163,18 @@ func end_run(simulation_time_s: float = 0.0) -> bool:
 		_fail_run("Failed to update run metadata: %s" % [run_path])
 		return false
 	run_file.store_string(JSON.stringify(_run_metadata, "\t"))
+	run_file.flush()
+	var metadata_error = run_file.get_error()
 	run_file.close()
-	
-	# Write final validity record
-	_write_validity("valid", _validity, "Run completed successfully", "event_recorder")
+	if metadata_error != OK:
+		_fail_run("Failed to write run metadata: %s (error %d)" % [run_path, metadata_error])
+		return false
+
+	# Write final validity record; a failure here must abort the run rather than
+	# reporting a completed run whose authoritative history is incomplete.
+	if not _write_validity("valid", _validity, "Run completed successfully", "event_recorder"):
+		_fail_run("Failed to write final validity record")
+		return false
 	
 	# Close events file
 	if _events_file:
@@ -211,9 +234,9 @@ func get_events_path() -> String:
 		return ""
 	return "%s/events.jsonl" % [_current_run_path]
 
-func _write_validity(validity: String, previous, reason: String, evaluator: String) -> void:
+func _write_validity(validity: String, previous, reason: String, evaluator: String) -> bool:
 	if _current_run_path == "":
-		return
+		return false
 	
 	var validity_record = {
 		"run_id": _current_run_id,
@@ -237,14 +260,20 @@ func _write_validity(validity: String, previous, reason: String, evaluator: Stri
 		validity_file = FileAccess.open(validity_path, FileAccess.WRITE)
 	if validity_file == null:
 		push_error("EventRecorder: Failed to open validity file: %s" % [validity_path])
-		return
+		return false
 	
 	validity_file.seek_end()
 	validity_file.store_line(JSON.stringify(validity_record))
+	validity_file.flush()
+	var write_error = validity_file.get_error()
 	validity_file.close()
+	if write_error != OK:
+		push_error("EventRecorder: Failed to write validity record: %s (error %d)" % [validity_path, write_error])
+		return false
 	
 	_validity = validity
 	validity_changed.emit(_current_run_id, validity, reason)
+	return true
 
 func _validate_event(event: Dictionary) -> bool:
 	# Basic validation - check required fields from event.schema.json

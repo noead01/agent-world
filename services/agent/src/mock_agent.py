@@ -84,13 +84,13 @@ class MockAgent:
         pass
     
     async def on_action_result(self, action: Action) -> None:
-        """Handle action result from world."""
+        """Handle a terminal action result from the world."""
         # Clear pending request
         if action.id in self.pending_requests:
             del self.pending_requests[action.id]
-        # Mark action as complete and advance to next target
+        # The target index is advanced when an action is issued, so a terminal
+        # result must not advance it again (that would skip the next target).
         self._action_in_progress = False
-        self.current_target_index += 1
         # Issue next action after cooldown
         self.cooldown_timer = 0.5  # 500ms cooldown
     
@@ -109,11 +109,22 @@ class MockAgent:
         if self.cooldown_timer > 0:
             self.cooldown_timer -= delta
             return
-            
-        # Don't issue next action if one is already in progress
+
+        # While an action is in progress, only issue the next target when it is
+        # explicitly marked to interrupt the current (possibly stuck) action.
         if self._action_in_progress:
+            if (
+                self.current_target_index < len(self.targets)
+                and self.targets[self.current_target_index].get("interrupt_after", False)
+                and self.last_world_state
+            ):
+                await self._issue_next_action(
+                    self.last_world_state.world_revision,
+                    self.last_world_state.simulation_tick,
+                    self.last_world_state.simulation_time,
+                )
             return
-            
+
         if self.current_target_index < len(self.targets) and self.last_world_state:
             await self._issue_next_action(
                 self.last_world_state.world_revision,
@@ -176,7 +187,8 @@ class MockAgent:
             await self.send(serialize_message(action))
             
         elif action_type == "wait":
-            # Wait completes immediately - send action that completes immediately
+            # Wait completes as soon as the world processes it; the terminal
+            # result will clear _action_in_progress like any other action.
             action = Action(
                 id=f"act_{uuid.uuid4().hex[:12]}",
                 run_id=self.run_id,
@@ -193,10 +205,12 @@ class MockAgent:
             )
             self.pending_requests[action.id] = {"type": "action", "timestamp": time.time()}
             await self.send(serialize_message(action))
-            # For wait, advance immediately since it completes instantly
-            self.current_target_index += 1
+        else:
+            # Unknown action type: leave the index untouched.
             return
-            
-        # Mark action as in progress (except wait which completes immediately)
+
+        # Advance exactly once per issued action, then wait for its terminal
+        # result (or an explicit interrupt_after target) before issuing again.
+        self.current_target_index += 1
         self._action_in_progress = True
         self.cooldown_timer = 0.5

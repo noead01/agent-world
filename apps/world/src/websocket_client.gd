@@ -11,7 +11,7 @@ enum ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 
 @export var url: String = "ws://localhost:8765"
 @export var reconnect_max_attempts: int = 10
-@export var ping_interval_s: float = 5.0
+@export var heartbeat_interval_s: float = 5.0
 
 # Configurable fields for Hello message
 var _hello_run_id: String = "run_001"
@@ -23,12 +23,14 @@ var _hello_scenario_version: String = "1.0.0"
 var _peer: WebSocketPeer
 var _state: ConnectionState = ConnectionState.DISCONNECTED
 var _reconnect_attempt: int = 0
-var _ping_timer: float = 0.0
 var _pending_messages: Array[Dictionary] = []
 var _request_id_counter: int = 0
 
 func _ready() -> void:
 	_peer = WebSocketPeer.new()
+	# Godot's WebSocketPeer has no send_ping()/get_pending_pings() API; ping
+	# frames are managed by the built-in heartbeat_interval property.
+	_peer.heartbeat_interval = heartbeat_interval_s
 	set_process(true)
 	set_physics_process(false)
 
@@ -42,7 +44,7 @@ func configure_hello(run_id: String, agent_id: String, experiment_id: String = "
 	if scenario_version != "":
 		_hello_scenario_version = scenario_version
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if _peer == null:
 		return
 	
@@ -68,21 +70,15 @@ func _process(delta: float) -> void:
 			if _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
 				_state = ConnectionState.CONNECTED
 				_reconnect_attempt = 0
-				_ping_timer = 0.0
 				_send_hello()
 			elif _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
 				_on_disconnected("Connection closed during handshake")
 				
 		ConnectionState.CONNECTED:
-			# Detect closed peers while connected
+			# Detect closed peers while connected; the heartbeat is handled by
+			# WebSocketPeer.heartbeat_interval.
 			if _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
 				_on_disconnected("Peer closed unexpectedly")
-				break
-			
-			_ping_timer += delta
-			if _ping_timer >= ping_interval_s:
-				_send_ping()
-				_ping_timer = 0.0
 			
 		ConnectionState.RECONNECTING:
 			# Reconnection handled by _schedule_reconnect
@@ -111,10 +107,6 @@ func _send_hello() -> void:
 	}
 	_send(hello)
 	print("MSG_JSON: %s" % [JSON.stringify(hello)])
-
-func _send_ping() -> void:
-	if _peer and _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
-		_peer.send_ping()
 
 func _handle_incoming(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")

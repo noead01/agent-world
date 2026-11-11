@@ -31,6 +31,10 @@ class MockAgent:
         self.send = send_callback
         self.correlation_base = correlation_base
         
+        # Local RNG seeded from run_id for reproducible delays
+        self._rng = random.Random()
+        self._rng.seed(run_id)
+        
         # Deterministic action sequence (same as room.gd MockController)
         self.targets: List[Dict[str, Any]] = []
         self.current_target_index = 0
@@ -131,7 +135,7 @@ class MockAgent:
         
         # Artificial delay to simulate slow response (50% chance, 200ms = ~12 ticks at 60Hz)
         # This causes the request_world_revision to become stale by the time the response is processed
-        if random.random() < 0.5:
+        if self._rng.random() < 0.5:
             await asyncio.sleep(0.2)
         
         if action_type in ["touch", "inspect"]:

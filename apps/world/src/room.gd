@@ -30,6 +30,7 @@ var _demo_resume_time: float = 4.0
 var _demo_scale_time: float = 6.0
 var _demo_reset_time: float = 8.0
 var _demo_phase: String = "normal"
+var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
 
 var _agent
 var _ws_client
@@ -151,10 +152,12 @@ func _physics_process(delta: float) -> void:
 		_demo_phase = "scaled"
 		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
 	elif _demo_phase == "scaled" and _demo_timer >= _demo_reset_time:
+		# Accumulate simulation time before reset for monotonic run clock
+		_cumulative_run_time += _sim_time.simulation_time
 		_sim_time.reset()
 		_sim_time.set_time_scale(1.0)
 		_demo_phase = "reset"
-		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
+		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d, cumulative=%.3f)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick, _cumulative_run_time])
 
 	# Apply gravity only when not paused (pause freezes behavior without corrupting state)
 	if not _sim_time.is_paused:
@@ -223,8 +226,40 @@ func _physics_process(delta: float) -> void:
 				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
 			])
 		print("==========================")
+		
+		# Record final world state and run_ended event before ending run
 		if _event_recorder:
-			_event_recorder.end_run(_sim_time.simulation_time)
+			# Build final world state snapshot
+			var final_objects: Array = []
+			for obj in objects:
+				var meta: Dictionary = obj.get_metadata()
+				var p: Vector3 = obj.position
+				final_objects.append({
+					"instance_id": meta["instance_id"],
+					"type_id": meta.get("type_id", "unknown"),
+					"position": {"x": p.x, "y": p.y, "z": p.z},
+					"sleeping": obj.is_sleeping(),
+				})
+			var final_agent_state: Dictionary = {}
+			if _agent != null:
+				var agent_dict: Dictionary = _agent.get_agent_dict()
+				final_agent_state = {
+					"id": agent_dict["id"],
+					"status": agent_dict["status"],
+					"position": agent_dict["position"],
+					"heading_radians": agent_dict["heading_radians"],
+				}
+			
+			# Emit run_ended domain event
+			_append_domain_event("run_ended", "", {
+				"description": "Simulation ended",
+				"final_objects": final_objects,
+				"final_agent_state": final_agent_state,
+			})
+			
+			# End run with cumulative run time
+			var total_run_time = _cumulative_run_time + _sim_time.simulation_time
+			_event_recorder.end_run(total_run_time)
 		get_tree().quit()
 
 # ProtocolHandler signal handlers
@@ -326,7 +361,7 @@ func _on_agent_action_interrupted(action_type_id: String) -> void:
 			"target_instance_id": "",
 			"parameters": {},
 			"intention_id": "",
-			"result": "interrupted",
+			"result": "failure",
 			"correlation": _protocol_handler._make_correlation(),
 		}
 		_protocol_handler.send_action(action)

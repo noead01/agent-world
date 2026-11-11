@@ -33,6 +33,11 @@ func _ready() -> void:
 	_version_regex = RegEx.new()
 	_version_regex.compile("^\\d+\\.\\d+\\.\\d+$")
 
+func _get_utc_timestamp() -> String:
+	# Get UTC time in ISO 8601 format with Z suffix (RFC3339)
+	var dt = Time.get_datetime_dict_from_system()
+	return "%04d-%02d-%02dT%02d:%02d:%02dZ" % [dt["year"], dt["month"], dt["day"], dt["hour"], dt["minute"], dt["second"]]
+
 func start_run(run_id: String, scenario_id: String, agent_id: String, random_seed: int, config_fingerprint: String = "") -> bool:
 	if _current_run_id != "":
 		push_error("EventRecorder: Run already in progress: %s" % [_current_run_id])
@@ -57,7 +62,7 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		return false
 	
 	# Initialize run metadata (config_fingerprint not in run.schema.json)
-	var now_str = Time.get_datetime_string_from_system()
+	var now_str = _get_utc_timestamp()
 	_run_metadata = {
 		"id": run_id,
 		"scenario_id": scenario_id,
@@ -112,6 +117,11 @@ func append_event(event: Dictionary) -> bool:
 	# Write event as JSONL line
 	var event_json = JSON.stringify(event_copy)
 	_events_file.store_line(event_json)
+	if _events_file.get_error() != OK:
+		push_error("EventRecorder: Failed to write event to file: %s" % [_events_file.get_error()])
+		_fail_run("Event write failed: %s" % [_events_file.get_error()])
+		return false
+	
 	_event_count += 1
 	
 	event_appended.emit(event_copy)
@@ -123,7 +133,7 @@ func end_run(simulation_time_s: float = 0.0) -> bool:
 		return false
 	
 	# Update run metadata
-	var now_str = Time.get_datetime_string_from_system()
+	var now_str = _get_utc_timestamp()
 	_run_metadata["ended_at"] = now_str
 	_run_metadata["simulation_time_s"] = simulation_time_s
 	_run_metadata["status"] = "completed"
@@ -159,7 +169,7 @@ func _fail_run(reason: String) -> void:
 		return
 	
 	# Update run metadata to aborted
-	var now_str = Time.get_datetime_string_from_system()
+	var now_str = _get_utc_timestamp()
 	_run_metadata["ended_at"] = now_str
 	_run_metadata["status"] = "aborted"
 	
@@ -206,7 +216,7 @@ func _write_validity(validity: String, previous: String, reason: String, evaluat
 		"validity": validity,
 		"previous_validity": previous,
 		"transition_reason": reason,
-		"evaluated_at": Time.get_datetime_string_from_system(),
+		"evaluated_at": _get_utc_timestamp(),
 		"evaluator_component": evaluator,
 		"evidence_summary": reason,
 		"invalidating_event_ids": [],

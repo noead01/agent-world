@@ -186,7 +186,9 @@ class AgentService:
             await mock_agent.on_observation(msg)
         elif isinstance(msg, Action):
             # World sends ActionResult back as Action with result field
-            await mock_agent.on_action_result(msg)
+            # Only process terminal results (not "pending" lifecycle messages from room.gd)
+            if msg.result is not None and msg.result != "pending":
+                await mock_agent.on_action_result(msg)
         elif isinstance(msg, Intention):
             # World sends Intention (touch/inspect) - treat as action request
             await mock_agent.on_action_result(msg)  # Reuse same handler for now

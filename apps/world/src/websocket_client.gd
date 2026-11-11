@@ -11,7 +11,8 @@ enum ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 
 @export var url: String = "ws://localhost:8765"
 @export var reconnect_max_attempts: int = 10
-@export var heartbeat_interval_s: float = 5.0
+@export var ping_interval_s: float = 5.0
+@export var max_unanswered_pings: int = 3
 
 # Configurable fields for Hello message
 var _hello_run_id: String = "run_001"
@@ -23,8 +24,7 @@ var _hello_scenario_version: String = "1.0.0"
 var _peer: WebSocketPeer
 var _state: ConnectionState = ConnectionState.DISCONNECTED
 var _reconnect_attempt: int = 0
-var _heartbeat_timer: float = 0.0
-var _last_pong: float = 0.0
+var _ping_timer: float = 0.0
 var _pending_messages: Array[Dictionary] = []
 var _request_id_counter: int = 0
 
@@ -69,23 +69,21 @@ func _process(delta: float) -> void:
 			if _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
 				_state = ConnectionState.CONNECTED
 				_reconnect_attempt = 0
-				_heartbeat_timer = 0.0
-				_last_pong = Time.get_ticks_msec() / 1000.0
+				_ping_timer = 0.0
 				_send_hello()
 			elif _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
 				_on_disconnected("Connection closed during handshake")
 				
 		ConnectionState.CONNECTED:
-			_heartbeat_timer += delta
-			if _heartbeat_timer >= heartbeat_interval_s:
-				_send_heartbeat()
-				_heartbeat_timer = 0.0
+			_ping_timer += delta
+			if _ping_timer >= ping_interval_s:
+				_send_ping()
+				_ping_timer = 0.0
 			
-			# Check for missed pongs (3 intervals = 15s)
-			# Use WebSocket peer's built-in ping/pong tracking instead of application-level heartbeat
-			var now = Time.get_ticks_msec() / 1000.0
-			if now - _last_pong > heartbeat_interval_s * 3:
-				_on_disconnected("Heartbeat timeout")
+			# Check for missed pongs using WebSocket peer's built-in tracking
+			var unanswered = _peer.get_pending_pings()
+			if unanswered > max_unanswered_pings:
+				_on_disconnected("Ping timeout: %d unanswered pings" % [unanswered])
 				
 		ConnectionState.RECONNECTING:
 			# Reconnection handled by _schedule_reconnect
@@ -115,17 +113,15 @@ func _send_hello() -> void:
 	_send(hello)
 	print("MSG_JSON: %s" % [JSON.stringify(hello)])
 
-func _send_heartbeat() -> void:
-	var hb = {"type": "Heartbeat", "timestamp_s": Time.get_ticks_msec() / 1000.0}
-	_send(hb)
+func _send_ping() -> void:
+	if _peer and _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
+		_peer.send_ping()
 
 func _handle_incoming(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
 	match msg_type:
 		"HelloAck":
 			connected.emit(msg.get("server_id", "unknown"))
-		"Heartbeat":
-			_last_pong = Time.get_ticks_msec() / 1000.0
 		"Error":
 			error.emit(msg.get("code", "UNKNOWN"), msg.get("message", ""))
 		"Goodbye":

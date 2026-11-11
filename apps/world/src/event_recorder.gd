@@ -224,8 +224,11 @@ func _write_validity(validity: String, previous: String, reason: String, evaluat
 	}
 	
 	var validity_path = "%s/validity.jsonl" % [_current_run_path]
-	# Use WRITE mode with append by seeking to end - avoids truncation of WRITE_READ
-	var validity_file = FileAccess.open(validity_path, FileAccess.WRITE)
+	# Open read/write (no truncation) so each validity record is appended;
+	# fall back to WRITE (create) when the file does not exist yet.
+	var validity_file = FileAccess.open(validity_path, FileAccess.WRITE_READ)
+	if validity_file == null:
+		validity_file = FileAccess.open(validity_path, FileAccess.WRITE)
 	if validity_file == null:
 		push_error("EventRecorder: Failed to open validity file: %s" % [validity_path])
 		return

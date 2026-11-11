@@ -103,8 +103,12 @@ class AgentService:
         except Exception as e:
             print(f"Connection error: {e}")
         finally:
+            # Only remove the client registered by *this* connection. A
+            # replacement socket for the same agent may already have taken the
+            # dictionary entry while this handler is finalizing.
             if agent_id and agent_id in self.clients:
-                del self.clients[agent_id]
+                if self.clients[agent_id].get("websocket") is websocket:
+                    del self.clients[agent_id]
                 
     async def _handle_hello(self, websocket: WebSocketServerProtocol, hello: Hello) -> None:
         """Process Hello handshake."""

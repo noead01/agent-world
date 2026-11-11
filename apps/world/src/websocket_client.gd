@@ -113,6 +113,9 @@ func _handle_incoming(msg: Dictionary) -> void:
 	match msg_type:
 		"HelloAck":
 			connected.emit(msg.get("server_id", "unknown"))
+			# The handshake is complete; deliver anything queued while the
+			# connection was down so no outcomes are lost across a reconnect.
+			_flush_pending_messages()
 		"Error":
 			error.emit(msg.get("code", "UNKNOWN"), msg.get("message", ""))
 		"Goodbye":
@@ -120,6 +123,16 @@ func _handle_incoming(msg: Dictionary) -> void:
 		_:
 			# Forward to ProtocolHandler for other types
 			pass
+
+func _flush_pending_messages() -> void:
+	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
+		return
+	if _pending_messages.is_empty():
+		return
+	var queued: Array[Dictionary] = _pending_messages
+	_pending_messages = []
+	for message in queued:
+		_send(message)
 
 func _on_disconnected(reason: String) -> void:
 	_state = ConnectionState.DISCONNECTED

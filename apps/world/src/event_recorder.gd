@@ -276,28 +276,65 @@ func _write_validity(validity: String, previous, reason: String, evaluator: Stri
 	return true
 
 func _validate_event(event: Dictionary) -> bool:
-	# Basic validation - check required fields from event.schema.json
-	var required_fields = ["id", "run_id", "timestamp_s", "version", "event_type_id"]
+	# Mirror event.schema.json before persisting: required fields, types,
+	# patterns, severity enum, additionalProperties=false, plus run_id
+	# consistency with the active run.
+	var allowed_fields = [
+		"id", "run_id", "agent_id", "timestamp_s", "version",
+		"event_type_id", "target_instance_id", "description", "severity", "metadata",
+	]
+	for field in event.keys():
+		if field not in allowed_fields:
+			push_error("EventRecorder: Unknown event field '%s'" % [field])
+			return false
+
+	var required_fields = ["id", "run_id", "timestamp_s", "version"]
 	for field in required_fields:
 		if not event.has(field):
 			push_error("EventRecorder: Missing required field '%s' in event" % [field])
 			return false
-	
+
+	# Optional/required string fields must actually be strings.
+	var string_fields = ["id", "run_id", "agent_id", "version", "event_type_id", "target_instance_id", "description"]
+	for field in string_fields:
+		if event.has(field) and not (event[field] is String):
+			push_error("EventRecorder: Field '%s' must be a string" % [field])
+			return false
+
 	# Validate id pattern using pre-compiled RegEx (String.match uses wildcard, not regex)
 	if not _id_regex.search(event["id"]):
 		push_error("EventRecorder: Invalid event id format: %s" % [event["id"]])
 		return false
-	
+
 	# Validate version pattern using pre-compiled RegEx
 	if not _version_regex.search(event["version"]):
 		push_error("EventRecorder: Invalid version format: %s" % [event["version"]])
 		return false
-	
+
+	# timestamp_s: number with minimum 0
+	var timestamp = event["timestamp_s"]
+	if not (timestamp is int or timestamp is float):
+		push_error("EventRecorder: timestamp_s must be a number")
+		return false
+	if float(timestamp) < 0.0:
+		push_error("EventRecorder: timestamp_s must be >= 0")
+		return false
+
+	# Events persisted under a run must reference that run.
+	if event["run_id"] != _current_run_id:
+		push_error("EventRecorder: Event run_id '%s' does not match active run '%s'" % [event["run_id"], _current_run_id])
+		return false
+
 	# Validate severity if present
 	if event.has("severity"):
 		var valid_severities = ["info", "notice", "warning", "error"]
-		if event["severity"] not in valid_severities:
+		if not (event["severity"] is String) or event["severity"] not in valid_severities:
 			push_error("EventRecorder: Invalid severity: %s" % [event["severity"]])
 			return false
-	
+
+	# metadata must be an object when present
+	if event.has("metadata") and not (event["metadata"] is Dictionary):
+		push_error("EventRecorder: metadata must be an object")
+		return false
+
 	return true

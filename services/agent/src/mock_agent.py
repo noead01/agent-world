@@ -96,13 +96,27 @@ class MockAgent:
     
     async def on_error(self, error: Error) -> None:
         """Handle protocol error (e.g., STALE_REVISION)."""
-        if error.code == "STALE_REVISION" and self.last_world_state:
-            # Re-plan with fresh world state
-            await self._issue_next_action(
-                error.current_revision or self.last_world_state.world_revision,
-                self.last_world_state.simulation_tick,
-                self.last_world_state.simulation_time
-            )
+        if error.code != "STALE_REVISION" or not self.last_world_state:
+            return
+
+        # The rejected target was already advanced past when it was issued, so
+        # recover its index from the pending request and resend it instead of
+        # silently skipping ahead to the following target.
+        request = self.pending_requests.pop(error.request_id, None) if error.request_id else None
+        target_index = request.get("target_index") if request else None
+        if target_index is None:
+            # Fallback: the request map may have been cleared; retry the last
+            # issued target (the one immediately before the read cursor).
+            target_index = max(0, self.current_target_index - 1)
+
+        await self._issue_next_action(
+            error.current_revision or self.last_world_state.world_revision,
+            self.last_world_state.simulation_tick,
+            self.last_world_state.simulation_time,
+            target_index=target_index,
+            advance=False,
+            apply_delay=False,
+        )
     
     async def run_tick(self, delta: float) -> None:
         """Main tick - called periodically to issue actions."""
@@ -132,23 +146,34 @@ class MockAgent:
                 self.last_world_state.simulation_time
             )
     
-    async def _issue_next_action(self, world_revision: int, simulation_tick: int, simulation_time: float) -> None:
-        """Issue the next action in the sequence."""
-        if self.current_target_index >= len(self.targets):
+    async def _issue_next_action(
+        self,
+        world_revision: int,
+        simulation_tick: int,
+        simulation_time: float,
+        target_index: Optional[int] = None,
+        advance: bool = True,
+        apply_delay: bool = True,
+    ) -> None:
+        """Issue a target, optionally resending a specific index (for retries)."""
+        if target_index is None:
+            target_index = self.current_target_index
+        if target_index >= len(self.targets):
             return
-            
-        target = self.targets[self.current_target_index]
+
+        target = self.targets[target_index]
         action_type = target.get("action_type", "move")
         target_id = target.get("target_id", "")
-        
+
         correlation = self._make_correlation(world_revision, simulation_tick, simulation_time)
-        request_id = f"req_{uuid.uuid4().hex[:12]}"
-        
-        # Artificial delay to simulate slow response (50% chance, 200ms = ~12 ticks at 60Hz)
-        # This causes the request_world_revision to become stale by the time the response is processed
-        if self._rng.random() < 0.5:
+
+        # Artificial delay to simulate slow response (50% chance, 200ms = ~12 ticks at 60Hz).
+        # This causes the request_world_revision to become stale by the time the
+        # response is processed. Retries skip it so they can land in time.
+        if apply_delay and self._rng.random() < 0.5:
             await asyncio.sleep(0.2)
-        
+
+        message_id = None
         if action_type in ["touch", "inspect"]:
             intention = Intention(
                 id=f"int_{uuid.uuid4().hex[:12]}",
@@ -165,9 +190,12 @@ class MockAgent:
                 correlation=correlation,
                 request_world_revision=world_revision
             )
-            self.pending_requests[intention.id] = {"type": "intention", "timestamp": time.time()}
+            message_id = intention.id
+            self.pending_requests[message_id] = {
+                "type": "intention", "timestamp": time.time(), "target_index": target_index,
+            }
             await self.send(serialize_message(intention))
-            
+
         elif action_type == "move":
             action = Action(
                 id=f"act_{uuid.uuid4().hex[:12]}",
@@ -183,9 +211,12 @@ class MockAgent:
                 correlation=correlation,
                 request_world_revision=world_revision
             )
-            self.pending_requests[action.id] = {"type": "action", "timestamp": time.time()}
+            message_id = action.id
+            self.pending_requests[message_id] = {
+                "type": "action", "timestamp": time.time(), "target_index": target_index,
+            }
             await self.send(serialize_message(action))
-            
+
         elif action_type == "wait":
             # Wait completes as soon as the world processes it; the terminal
             # result will clear _action_in_progress like any other action.
@@ -203,14 +234,16 @@ class MockAgent:
                 correlation=correlation,
                 request_world_revision=world_revision
             )
-            self.pending_requests[action.id] = {"type": "action", "timestamp": time.time()}
+            message_id = action.id
+            self.pending_requests[message_id] = {
+                "type": "action", "timestamp": time.time(), "target_index": target_index,
+            }
             await self.send(serialize_message(action))
         else:
             # Unknown action type: leave the index untouched.
             return
 
-        # Advance exactly once per issued action, then wait for its terminal
-        # result (or an explicit interrupt_after target) before issuing again.
-        self.current_target_index += 1
+        if advance:
+            self.current_target_index = max(self.current_target_index, target_index + 1)
         self._action_in_progress = True
         self.cooldown_timer = 0.5

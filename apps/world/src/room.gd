@@ -306,7 +306,9 @@ func _on_action_received(action: Dictionary) -> void:
 		# Handle both Action (action_type_id) and Intention (intention_type_id) message formats
 		var action_type = action.get("action_type_id", action.get("intention_type_id", ""))
 		var target_id = action.get("target_instance_id", "")
-		_agent.execute_action(action_type, target_id)
+		# Preserve the command id so terminal results can be correlated with the
+		# exact request the agent service is waiting on.
+		_agent.execute_action(action_type, target_id, action.get("id", ""))
 
 func _on_action_result(result: Dictionary) -> void:
 	# ActionResult received (response to action we sent) - currently not used since agent service drives actions
@@ -322,11 +324,19 @@ func _on_run_failed(run_id: String, reason: String) -> void:
 	get_tree().quit()
 
 # Agent action lifecycle handlers - send results to agent service AND record to run
-func _on_agent_action_started(action_type_id: String, target_instance_id: String) -> void:
+func _lifecycle_action_id(command_id: String, action_type_id: String) -> String:
+	# Echo the originating command id so the agent can match the terminal result
+	# to the exact request it is waiting on. Fall back to a generated id for
+	# local callers (e.g. the legacy mock controller).
+	if command_id != "":
+		return command_id
+	return "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1]
+
+func _on_agent_action_started(action_type_id: String, target_instance_id: String, command_id: String) -> void:
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
-			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"id": _lifecycle_action_id(command_id, action_type_id),
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
 			"version": "1.0.0",
@@ -345,11 +355,11 @@ func _on_agent_action_started(action_type_id: String, target_instance_id: String
 		"description": "Agent started %s action" % [action_type_id],
 	})
 
-func _on_agent_action_completed(action_type_id: String, result: String) -> void:
+func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
-			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"id": _lifecycle_action_id(command_id, action_type_id),
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
 			"version": "1.0.0",
@@ -369,11 +379,11 @@ func _on_agent_action_completed(action_type_id: String, result: String) -> void:
 		"description": "Agent completed %s action with result: %s" % [action_type_id, result],
 	})
 
-func _on_agent_action_failed(action_type_id: String, reason: String) -> void:
+func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
-			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"id": _lifecycle_action_id(command_id, action_type_id),
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
 			"version": "1.0.0",
@@ -393,11 +403,11 @@ func _on_agent_action_failed(action_type_id: String, reason: String) -> void:
 		"description": "Agent %s action failed: %s" % [action_type_id, reason],
 	})
 
-func _on_agent_action_interrupted(action_type_id: String) -> void:
+func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
-			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"id": _lifecycle_action_id(command_id, action_type_id),
 			"run_id": _event_recorder.get_run_status().run_id,
 			"timestamp_s": _sim_time.simulation_time,
 			"version": "1.0.0",

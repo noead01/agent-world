@@ -8,7 +8,14 @@ REPOSITORY_ROOT := $(abspath $(COMPONENT_ROOT)/../..)
 .PHONY: bootstrap build format format-check lint validate \
 	test-unit test-integration test-acceptance clean
 
-bootstrap build format format-check lint clean:
+bootstrap:
+ifdef COMPONENT_BOOTSTRAP
+	@$(COMPONENT_BOOTSTRAP)
+else
+	@printf '%s: %s has no implementation yet\n' '$(COMPONENT_NAME)' '$@'
+endif
+
+build format format-check lint clean:
 	@printf '%s: %s has no implementation yet\n' '$(COMPONENT_NAME)' '$@'
 
 validate:

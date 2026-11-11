@@ -41,8 +41,9 @@ class MockAgent:
         self.action_cooldown = 0.0
         self.cooldown_timer = 0.0
         self.last_world_state: Optional[WorldState] = None
-        self.pending_requests: Dict[str, Dict] = {}  # request_id -> {type, timestamp}
+        self.pending_requests: Dict[str, Dict] = {}  # request_id -> {type, timestamp, target_index, payload}
         self._action_in_progress: bool = False  # Track if action is awaiting result
+        self._active_request_id: Optional[str] = None  # Command whose terminal result is awaited
         
     def set_targets(self, targets: List[Dict[str, Any]]) -> None:
         """Set the action target sequence."""
@@ -50,6 +51,7 @@ class MockAgent:
         self.current_target_index = 0
         self.cooldown_timer = 0.0
         self._action_in_progress = False
+        self._active_request_id = None
         
     def _make_correlation(self, world_revision: int, simulation_tick: int, simulation_time: float) -> CorrelationContext:
         """Create correlation context for outgoing messages."""
@@ -69,10 +71,38 @@ class MockAgent:
     async def on_hello_ack(self, ack: HelloAck, resume: bool = False) -> None:
         """Handle handshake acknowledgment."""
         self.correlation_base = ack.correlation
-        # Only start the sequence on a fresh session. When resuming an existing
-        # connection, keep the current cursor and any in-flight action.
-        if not resume and self.targets:
-            await self._issue_next_action(ack.correlation.world_revision, ack.correlation.simulation_tick, ack.correlation.simulation_time)
+        if not resume:
+            # Start the sequence on a fresh session.
+            if self.targets:
+                await self._issue_next_action(ack.correlation.world_revision, ack.correlation.simulation_tick, ack.correlation.simulation_time)
+            return
+        # Resuming: retransmit an in-flight command. If the disconnect happened
+        # before the world received it, retaining the flag alone would leave the
+        # sequence stalled waiting for a result that will never arrive.
+        await self._retransmit_active_request()
+
+    async def _retransmit_active_request(self) -> None:
+        """Re-send the command whose terminal result we are still waiting on."""
+        if not self._action_in_progress or not self._active_request_id:
+            return
+        request = self.pending_requests.get(self._active_request_id)
+        if request and request.get("payload"):
+            await self.send(request["payload"])
+            return
+        # Fallback when no serialized payload was retained: reissue the same
+        # target without advancing the cursor.
+        target_index = request.get("target_index") if request else None
+        if target_index is None:
+            target_index = max(0, self.current_target_index - 1)
+        base = self.correlation_base
+        await self._issue_next_action(
+            base.world_revision,
+            base.simulation_tick,
+            base.simulation_time,
+            target_index=target_index,
+            advance=False,
+            apply_delay=False,
+        )
     
     async def on_world_state(self, state: WorldState) -> None:
         """Handle periodic world state update."""
@@ -86,9 +116,14 @@ class MockAgent:
     
     async def on_action_result(self, action: Action) -> None:
         """Handle a terminal action result from the world."""
-        # Clear pending request
-        if action.id in self.pending_requests:
-            del self.pending_requests[action.id]
+        # A result only terminates the action we are currently awaiting. Older
+        # results (e.g. a move interrupted by a touch) must not clear the state
+        # of the command that superseded them.
+        is_active = action.id == self._active_request_id
+        self.pending_requests.pop(action.id, None)
+        if not is_active:
+            return
+        self._active_request_id = None
         # The target index is advanced when an action is issued, so a terminal
         # result must not advance it again (that would skip the next target).
         self._action_in_progress = False
@@ -192,10 +227,12 @@ class MockAgent:
                 request_world_revision=world_revision
             )
             message_id = intention.id
+            payload = serialize_message(intention)
             self.pending_requests[message_id] = {
-                "type": "intention", "timestamp": time.time(), "target_index": target_index,
+                "type": "intention", "timestamp": time.time(),
+                "target_index": target_index, "payload": payload,
             }
-            await self.send(serialize_message(intention))
+            await self.send(payload)
 
         elif action_type == "move":
             action = Action(
@@ -213,10 +250,12 @@ class MockAgent:
                 request_world_revision=world_revision
             )
             message_id = action.id
+            payload = serialize_message(action)
             self.pending_requests[message_id] = {
-                "type": "action", "timestamp": time.time(), "target_index": target_index,
+                "type": "action", "timestamp": time.time(),
+                "target_index": target_index, "payload": payload,
             }
-            await self.send(serialize_message(action))
+            await self.send(payload)
 
         elif action_type == "wait":
             # Wait completes as soon as the world processes it; the terminal
@@ -236,10 +275,12 @@ class MockAgent:
                 request_world_revision=world_revision
             )
             message_id = action.id
+            payload = serialize_message(action)
             self.pending_requests[message_id] = {
-                "type": "action", "timestamp": time.time(), "target_index": target_index,
+                "type": "action", "timestamp": time.time(),
+                "target_index": target_index, "payload": payload,
             }
-            await self.send(serialize_message(action))
+            await self.send(payload)
         else:
             # Unknown action type: leave the index untouched.
             return
@@ -247,4 +288,5 @@ class MockAgent:
         if advance:
             self.current_target_index = max(self.current_target_index, target_index + 1)
         self._action_in_progress = True
+        self._active_request_id = message_id
         self.cooldown_timer = 0.5

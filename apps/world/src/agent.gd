@@ -2,10 +2,10 @@ extends CharacterBody3D
 
 class_name Agent
 
-signal action_started(action_type_id: String, target_instance_id: String)
-signal action_completed(action_type_id: String, result: String)
-signal action_failed(action_type_id: String, reason: String)
-signal action_interrupted(action_type_id: String)
+signal action_started(action_type_id: String, target_instance_id: String, command_id: String)
+signal action_completed(action_type_id: String, result: String, command_id: String)
+signal action_failed(action_type_id: String, reason: String, command_id: String)
+signal action_interrupted(action_type_id: String, command_id: String)
 
 @export_group("Agent")
 var agent_id: String = "wanderer_01"
@@ -104,25 +104,28 @@ func _find_object_in_room(node: Node, instance_id: String):
 			return found
 	return null
 
-func execute_action(action_type_id: String, target_instance_id: String = "") -> void:
+func execute_action(action_type_id: String, target_instance_id: String = "", command_id: String = "") -> void:
 	# Interrupt any current action and clear cached target
 	if _current_action.has("action_type_id"):
-		action_interrupted.emit(_current_action["action_type_id"])
+		var interrupted_id: String = _current_action.get("command_id", "")
+		action_interrupted.emit(_current_action["action_type_id"], interrupted_id)
 		print("AGENT_ACTION: interrupted=%s" % [_current_action["action_type_id"]])
 
 	_current_action = {
 		"action_type_id": action_type_id,
 		"target_instance_id": target_instance_id,
+		"command_id": command_id,
 		"started": false,
 	}
 	_target_object = null
-	action_started.emit(action_type_id, target_instance_id)
+	action_started.emit(action_type_id, target_instance_id, command_id)
 	print("AGENT_ACTION: started=%s target=%s" % [action_type_id, target_instance_id])
 	status = "acting"
 
 func _execute_current_action(delta: float) -> void:
 	var action_type: String = _current_action["action_type_id"]
 	var target_id: String = _current_action["target_instance_id"]
+	var command_id: String = _current_action.get("command_id", "")
 
 	if not _current_action["started"]:
 		_current_action["started"] = true
@@ -136,13 +139,13 @@ func _execute_current_action(delta: float) -> void:
 	if action_type in ["touch", "inspect"]:
 		if _target_object == null:
 			_current_action = {}
-			action_failed.emit(action_type, "target_not_found")
+			action_failed.emit(action_type, "target_not_found", command_id)
 			print("AGENT_ACTION: failed=%s reason=target_not_found" % [action_type])
 			status = "idle"
 			return
 		if not can_reach(target_id):
 			_current_action = {}
-			action_failed.emit(action_type, "unreachable")
+			action_failed.emit(action_type, "unreachable", command_id)
 			print("AGENT_ACTION: failed=%s reason=unreachable" % [action_type])
 			status = "idle"
 			return
@@ -151,7 +154,7 @@ func _execute_current_action(delta: float) -> void:
 		if global_position.distance_to(_target_object.global_position) <= reach_distance:
 			_current_action = {}
 			_target_object = null
-			action_completed.emit(action_type, "success")
+			action_completed.emit(action_type, "success", command_id)
 			print("AGENT_ACTION: completed=%s result=success" % [action_type])
 			status = "idle"
 		return
@@ -160,7 +163,7 @@ func _execute_current_action(delta: float) -> void:
 	if action_type == "move":
 		if _target_object == null:
 			_current_action = {}
-			action_failed.emit(action_type, "target_not_found")
+			action_failed.emit(action_type, "target_not_found", command_id)
 			print("AGENT_ACTION: failed=%s reason=target_not_found" % [action_type])
 			status = "idle"
 			return
@@ -170,7 +173,7 @@ func _execute_current_action(delta: float) -> void:
 		if dist <= reach_distance:
 			_current_action = {}
 			_target_object = null
-			action_completed.emit(action_type, "success")
+			action_completed.emit(action_type, "success", command_id)
 			print("AGENT_ACTION: completed=%s result=success" % [action_type])
 			status = "idle"
 		return
@@ -178,23 +181,24 @@ func _execute_current_action(delta: float) -> void:
 	# Wait actions complete immediately
 	if action_type == "wait":
 		_current_action = {}
-		action_completed.emit(action_type, "success")
+		action_completed.emit(action_type, "success", command_id)
 		print("AGENT_ACTION: completed=%s result=success" % [action_type])
 		status = "idle"
 		return
 
 	# Unknown action type
 	_current_action = {}
-	action_failed.emit(action_type, "unknown_action_type")
+	action_failed.emit(action_type, "unknown_action_type", command_id)
 	print("AGENT_ACTION: failed=%s reason=unknown_action_type" % [action_type])
 	status = "idle"
 
 func interrupt_current_action() -> void:
 	if _current_action.has("action_type_id"):
 		var interrupted_type: String = _current_action["action_type_id"]
+		var interrupted_id: String = _current_action.get("command_id", "")
 		_current_action = {}
 		_target_object = null
-		action_interrupted.emit(interrupted_type)
+		action_interrupted.emit(interrupted_type, interrupted_id)
 		print("AGENT_ACTION: interrupted=%s" % [interrupted_type])
 		status = "idle"
 

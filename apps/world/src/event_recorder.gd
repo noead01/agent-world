@@ -56,7 +56,7 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		_fail_run("Failed to open events file: %s" % [events_path])
 		return false
 	
-	# Initialize run metadata
+	# Initialize run metadata (config_fingerprint not in run.schema.json)
 	var now_str = Time.get_datetime_string_from_system()
 	_run_metadata = {
 		"id": run_id,
@@ -68,7 +68,6 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		"simulation_time_s": 0.0,
 		"status": "running",
 		"random_seed": random_seed,
-		"config_fingerprint": config_fingerprint,
 	}
 	
 	# Write run metadata
@@ -80,8 +79,8 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 	run_file.store_string(JSON.stringify(_run_metadata, "\t"))
 	run_file.close()
 	
-	# Write initial validity record
-	_write_validity("valid", "", "Run started", "event_recorder")
+	# Write initial validity record (previous_validity = null for initial)
+	_write_validity("valid", null, "Run started", "event_recorder")
 	
 	_validity = "valid"
 	_event_count = 0

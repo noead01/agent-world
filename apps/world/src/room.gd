@@ -249,6 +249,93 @@ func _on_run_failed(run_id: String, reason: String) -> void:
 	print("RUN FAILED: %s - %s" % [run_id, reason])
 	get_tree().quit()
 
+# Agent action lifecycle handlers - send results to agent service AND record to run
+func _on_agent_action_started(action_type_id: String, target_instance_id: String) -> void:
+	if _protocol_handler:
+		var action = {
+			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"action_type_id": action_type_id,
+			"target_instance_id": target_instance_id,
+			"parameters": {},
+			"intention_id": "",
+			"result": "pending",
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_started", target_instance_id, {
+		"action_type": action_type_id,
+		"description": "Agent started %s action" % [action_type_id],
+	})
+
+func _on_agent_action_completed(action_type_id: String, result: String) -> void:
+	if _protocol_handler:
+		var action = {
+			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"action_type_id": action_type_id,
+			"target_instance_id": "",
+			"parameters": {},
+			"intention_id": "",
+			"result": result,
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_completed", "", {
+		"action_type": action_type_id,
+		"result": result,
+		"description": "Agent completed %s action with result: %s" % [action_type_id, result],
+	})
+
+func _on_agent_action_failed(action_type_id: String, reason: String) -> void:
+	if _protocol_handler:
+		var action = {
+			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"action_type_id": action_type_id,
+			"target_instance_id": "",
+			"parameters": {},
+			"intention_id": "",
+			"result": "failure",
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_failed", "", {
+		"action_type": action_type_id,
+		"reason": reason,
+		"description": "Agent %s action failed: %s" % [action_type_id, reason],
+	})
+
+func _on_agent_action_interrupted(action_type_id: String) -> void:
+	if _protocol_handler:
+		var action = {
+			"id": "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1],
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"action_type_id": action_type_id,
+			"target_instance_id": "",
+			"parameters": {},
+			"intention_id": "",
+			"result": "interrupted",
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_interrupted", "", {
+		"action_type": action_type_id,
+		"description": "Agent %s action interrupted" % [action_type_id],
+	})
+
 func _get_nearby_objects() -> Array:
 	var nearby = []
 	for obj in objects:
@@ -456,6 +543,13 @@ func _spawn_agent() -> void:
 	capsule_mesh.height = 1.0
 	agent_mesh.mesh = capsule_mesh
 	_agent.add_child(agent_mesh)
+
+	# Connect Agent action lifecycle signals to ProtocolHandler (to send results to agent service)
+	# and to EventRecorder (to persist action events to run record)
+	_agent.action_started.connect(_on_agent_action_started)
+	_agent.action_completed.connect(_on_agent_action_completed)
+	_agent.action_failed.connect(_on_agent_action_failed)
+	_agent.action_interrupted.connect(_on_agent_action_interrupted)
 
 	# The external agent service now drives the agent by sending Action messages.
 	# ProtocolHandler receives Action messages and Room forwards them to Agent.execute_action().

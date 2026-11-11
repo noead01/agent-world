@@ -1,13 +1,33 @@
 """Run record loading and validation."""
 import json
 import os
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from jsonschema import validate, ValidationError
+from jsonschema import validate, ValidationError, FormatChecker
 
-# Load schemas
-SCHEMA_DIR = Path(__file__).parent.parent.parent / "schemas"
+# Load schemas bundled inside the installed package so a wheel install works
+# without relying on the repository checkout.
+SCHEMA_DIR = Path(__file__).parent / "schemas"
+
+# JSON Schema treats `format` as an annotation unless a checker is supplied.
+# Enforce RFC 3339 date-times without pulling in an optional validator package.
+_DATETIME_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
+FORMAT_CHECKER = FormatChecker()
+
+
+@FORMAT_CHECKER.checks("date-time", raises=(ValueError, TypeError))
+def _check_datetime(value: object) -> bool:
+    if not isinstance(value, str):
+        return True  # Non-string values are rejected by the schema's type check.
+    if not _DATETIME_PATTERN.match(value):
+        return False
+    datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return True
 
 def _load_schema(name: str) -> Dict[str, Any]:
     with open(SCHEMA_DIR / name) as f:
@@ -85,21 +105,21 @@ class RunRecord:
         
         # Validate run metadata
         try:
-            validate(instance=self._as_run_dict(), schema=RUN_SCHEMA)
+            validate(instance=self._as_run_dict(), schema=RUN_SCHEMA, format_checker=FORMAT_CHECKER)
         except ValidationError as e:
             errors.append(f"Run metadata: {e.message}")
         
         # Validate each event
         for i, event in enumerate(self.events):
             try:
-                validate(instance=event, schema=EVENT_SCHEMA)
+                validate(instance=event, schema=EVENT_SCHEMA, format_checker=FORMAT_CHECKER)
             except ValidationError as e:
                 errors.append(f"Event {i} ({event.get('id', 'unknown')}): {e.message}")
         
         # Validate validity history
         for i, validity in enumerate(self.validity_history):
             try:
-                validate(instance=validity, schema=VALIDITY_SCHEMA)
+                validate(instance=validity, schema=VALIDITY_SCHEMA, format_checker=FORMAT_CHECKER)
             except ValidationError as e:
                 errors.append(f"Validity {i}: {e.message}")
         

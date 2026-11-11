@@ -7,7 +7,7 @@ from typing import Dict, Optional
 import websockets
 from websockets.server import WebSocketServerProtocol
 from .schemas import (
-    Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Error
+    Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Observation, Error
 )
 from .protocol import (
     parse_message, serialize_message, PROTOCOL_VERSION, make_error

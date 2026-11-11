@@ -12,7 +12,6 @@ enum ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 @export var url: String = "ws://localhost:8765"
 @export var reconnect_max_attempts: int = 10
 @export var ping_interval_s: float = 5.0
-@export var max_unanswered_pings: int = 3
 
 # Configurable fields for Hello message
 var _hello_run_id: String = "run_001"
@@ -85,11 +84,6 @@ func _process(delta: float) -> void:
 				_send_ping()
 				_ping_timer = 0.0
 			
-			# Check for missed pongs using WebSocket peer's built-in tracking
-			var unanswered = _peer.get_pending_pings()
-			if unanswered > max_unanswered_pings:
-				_on_disconnected("Ping timeout: %d unanswered pings" % [unanswered])
-				
 		ConnectionState.RECONNECTING:
 			# Reconnection handled by _schedule_reconnect
 			pass

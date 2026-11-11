@@ -66,11 +66,12 @@ class MockAgent:
             component_version=PROTOCOL_VERSION,
         )
     
-    async def on_hello_ack(self, ack: HelloAck) -> None:
+    async def on_hello_ack(self, ack: HelloAck, resume: bool = False) -> None:
         """Handle handshake acknowledgment."""
         self.correlation_base = ack.correlation
-        # Send initial intention after handshake
-        if self.targets:
+        # Only start the sequence on a fresh session. When resuming an existing
+        # connection, keep the current cursor and any in-flight action.
+        if not resume and self.targets:
             await self._issue_next_action(ack.correlation.world_revision, ack.correlation.simulation_tick, ack.correlation.simulation_time)
     
     async def on_world_state(self, state: WorldState) -> None:

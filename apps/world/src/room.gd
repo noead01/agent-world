@@ -89,6 +89,12 @@ func _ready() -> void:
 	)
 	if not success:
 		print("ERROR: Failed to start event recorder")
+		# Without an active recorder the run cannot produce an authoritative
+		# record, so abort initialization instead of launching the simulation.
+		set_process(false)
+		set_physics_process(false)
+		get_tree().quit()
+		return
 	else:
 		# Persist the initial run boundary before any other activity so the
 		# authoritative timeline can reconstruct its starting conditions.

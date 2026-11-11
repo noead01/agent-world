@@ -69,7 +69,8 @@ func _process(_delta: float) -> void:
 		ConnectionState.CONNECTING:
 			if _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
 				_state = ConnectionState.CONNECTED
-				_reconnect_attempt = 0
+				# Do not reset _reconnect_attempt here: _send_hello() uses it to
+				# advertise reconnect=true. It is reset only after HelloAck.
 				_send_hello()
 			elif _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
 				_on_disconnected("Connection closed during handshake")
@@ -112,6 +113,8 @@ func _handle_incoming(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
 	match msg_type:
 		"HelloAck":
+			# Handshake accepted: now it is safe to clear the backoff counter.
+			_reconnect_attempt = 0
 			connected.emit(msg.get("server_id", "unknown"))
 			# The handshake is complete; deliver anything queued while the
 			# connection was down so no outcomes are lost across a reconnect.

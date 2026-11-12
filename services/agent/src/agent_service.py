@@ -136,6 +136,8 @@ class AgentService:
             world_revision=self.world_revision,
             simulation_tick=self.simulation_tick,
             simulation_time=self.simulation_time,
+            trace_id=hello.correlation.trace_id or uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
             component="agent",
             component_version=PROTOCOL_VERSION,
         )

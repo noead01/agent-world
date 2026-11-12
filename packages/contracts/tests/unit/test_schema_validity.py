@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - jsonschema is a dev dependency
     jsonschema = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-SCHEMAS_DIR = os.path.join(ROOT, "packages", "contracts", "schemas")
+SCHEMAS_DIR = os.path.join(ROOT, "packages", "contracts", "src", "agent_world_contracts", "schemas")
 
 
 def load_json(path: str) -> object:

@@ -25,14 +25,19 @@ var _state: ConnectionState = ConnectionState.DISCONNECTED
 var _reconnect_attempt: int = 0
 var _pending_messages: Array[Dictionary] = []
 var _request_id_counter: int = 0
+var _trace_id: String = ""
 
 func _ready() -> void:
 	_peer = WebSocketPeer.new()
+	_trace_id = Crypto.new().generate_random_bytes(16).hex_encode()
 	# Godot's WebSocketPeer has no send_ping()/get_pending_pings() API; ping
 	# frames are managed by the built-in heartbeat_interval property.
 	_peer.heartbeat_interval = heartbeat_interval_s
 	set_process(true)
 	set_physics_process(false)
+
+func get_trace_id() -> String:
+	return _trace_id
 
 func configure_hello(run_id: String, agent_id: String, experiment_id: String = "", scenario_id: String = "", scenario_version: String = "") -> void:
 	_hello_run_id = run_id
@@ -102,6 +107,8 @@ func _send_hello() -> void:
 			"world_revision": 0,
 			"simulation_tick": 0,
 			"simulation_time": 0.0,
+			"trace_id": _trace_id,
+			"span_id": Crypto.new().generate_random_bytes(8).hex_encode(),
 			"component": "world",
 			"component_version": "1.0.0"
 		}

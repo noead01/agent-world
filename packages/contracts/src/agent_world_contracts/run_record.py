@@ -67,22 +67,24 @@ class RunRecord:
         # Load events
         events = []
         events_path = run_path / "events.jsonl"
-        if events_path.exists():
-            with open(events_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        events.append(json.loads(line))
+        if not events_path.is_file():
+            raise FileNotFoundError(f"events.jsonl not found in {run_dir}")
+        with open(events_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
         
         # Load validity history
         validity_history = []
         validity_path = run_path / "validity.jsonl"
-        if validity_path.exists():
-            with open(validity_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        validity_history.append(json.loads(line))
+        if not validity_path.is_file():
+            raise FileNotFoundError(f"validity.jsonl not found in {run_dir}")
+        with open(validity_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    validity_history.append(json.loads(line))
         
         return cls(
             run_id=run_meta["id"],
@@ -102,6 +104,11 @@ class RunRecord:
     
     def validate(self) -> List[str]:
         errors = []
+
+        if not self.events:
+            errors.append("Event stream is empty; run_started event is missing")
+        if not self.validity_history:
+            errors.append("Validity history is empty; initial validity record is missing")
         
         # Validate run metadata
         try:

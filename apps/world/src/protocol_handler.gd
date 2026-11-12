@@ -22,6 +22,7 @@ var _current_simulation_tick: int = 0
 var _current_simulation_time: float = 0.0
 var _tick_counter: int = 0
 var _pending_requests: Dictionary = {}  # request_id -> {type, correlation, timestamp}
+var _trace_id: String = ""
 
 func _ready() -> void:
 	# Only auto-discover WebSocketClient if not already set via set_websocket_client
@@ -31,6 +32,8 @@ func _ready() -> void:
 func set_websocket_client(client) -> void:
 	_websocket_client = client
 	if _websocket_client:
+		if _websocket_client.has_method("get_trace_id"):
+			_trace_id = _websocket_client.get_trace_id()
 		if not _websocket_client.message_received.is_connected(_on_message_received):
 			_websocket_client.message_received.connect(_on_message_received)
 		if not _websocket_client.connected.is_connected(_on_connected):
@@ -187,6 +190,12 @@ func send_action(action: Dictionary) -> void:
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 
 func _make_correlation() -> Dictionary:
+	# Resolve lazily as well as in set_websocket_client(), because sibling node
+	# _ready() order can expose the client before its trace ID is initialized.
+	if _trace_id == "" and _websocket_client and _websocket_client.has_method("get_trace_id"):
+		_trace_id = _websocket_client.get_trace_id()
+	if _trace_id == "":
+		_trace_id = Crypto.new().generate_random_bytes(16).hex_encode()
 	return {
 		"experiment_id": experiment_id,
 		"scenario_id": scenario_id,
@@ -196,6 +205,8 @@ func _make_correlation() -> Dictionary:
 		"world_revision": _current_world_revision,
 		"simulation_tick": _current_simulation_tick,
 		"simulation_time": _current_simulation_time,
+		"trace_id": _trace_id,
+		"span_id": Crypto.new().generate_random_bytes(8).hex_encode(),
 		"component": "world",
 		"component_version": "1.0.0",
 	}

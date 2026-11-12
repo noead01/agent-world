@@ -64,6 +64,8 @@ class MockAgent:
             world_revision=world_revision,
             simulation_tick=simulation_tick,
             simulation_time=simulation_time,
+            trace_id=self.correlation_base.trace_id or uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
             component="agent",
             component_version=PROTOCOL_VERSION,
         )

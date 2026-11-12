@@ -92,8 +92,30 @@ func can_reach(target_instance_id: String) -> bool:
 	var target: Node = _find_object_in_room(_room, target_instance_id)
 	if target == null:
 		return false
-	var distance: float = global_position.distance_to(target.global_position)
-	return distance <= reach_distance
+	return _distance_to_target_surface(target) <= reach_distance
+
+func _distance_to_target_surface(target: Node) -> float:
+	var local_position: Vector3 = target.to_local(global_position)
+	var shape_type: String = String(target.get("shape_type"))
+	var dimensions: Dictionary = target.get("dimensions_m")
+	var sx: float = float(dimensions.get("x", 0.5))
+	var sy: float = float(dimensions.get("y", 0.5))
+	var sz: float = float(dimensions.get("z", 0.5))
+
+	if shape_type == "sphere":
+		return maxf(local_position.length() - sx / 2.0, 0.0)
+	if shape_type == "cylinder":
+		var radial_gap: float = maxf(Vector2(local_position.x, local_position.z).length() - sx, 0.0)
+		var vertical_gap: float = maxf(absf(local_position.y) - sy / 2.0, 0.0)
+		return Vector2(radial_gap, vertical_gap).length()
+	if shape_type == "box":
+		var outside: Vector3 = Vector3(
+			maxf(absf(local_position.x) - sx / 2.0, 0.0),
+			maxf(absf(local_position.y) - sy / 2.0, 0.0),
+			maxf(absf(local_position.z) - sz / 2.0, 0.0)
+		)
+		return outside.length()
+	return global_position.distance_to(target.global_position)
 
 func _find_object_in_room(node: Node, instance_id: String):
 	if node.has_meta("instance_id") and node.get_meta("instance_id") == instance_id:
@@ -151,7 +173,7 @@ func _execute_current_action(delta: float) -> void:
 			return
 		# Move close to target first
 		navigate_toward(_target_object.global_position, delta)
-		if global_position.distance_to(_target_object.global_position) <= reach_distance:
+		if _distance_to_target_surface(_target_object) <= reach_distance:
 			_current_action = {}
 			_target_object = null
 			action_completed.emit(action_type, "success", command_id)
@@ -168,9 +190,7 @@ func _execute_current_action(delta: float) -> void:
 			status = "idle"
 			return
 		navigate_toward(_target_object.global_position, delta)
-		var dist: float = global_position.distance_to(_target_object.global_position)
-		# Complete when within reach distance (accounts for agent + target collision radii)
-		if dist <= reach_distance:
+		if _distance_to_target_surface(_target_object) <= reach_distance:
 			_current_action = {}
 			_target_object = null
 			action_completed.emit(action_type, "success", command_id)

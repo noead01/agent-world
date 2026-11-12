@@ -113,6 +113,7 @@ class RunRecord:
             errors.append("Validity history is empty; initial validity record is missing")
 
         errors.extend(self._validate_event_boundaries())
+        errors.extend(self._validate_event_timestamps())
         
         # Validate run metadata
         try:
@@ -164,6 +165,20 @@ class RunRecord:
                 errors.append("Completed event stream must end with exactly one run_ended event")
         elif has_run_ended:
             errors.append("Only completed runs may contain a run_ended event")
+        return errors
+
+    def _validate_event_timestamps(self) -> List[str]:
+        errors = []
+        previous_timestamp = None
+        for index, event in enumerate(self.events):
+            timestamp = event.get("timestamp_s")
+            if not isinstance(timestamp, (int, float)):
+                continue
+            if previous_timestamp is not None and timestamp < previous_timestamp:
+                errors.append(
+                    f"Event {index} timestamp_s must be nondecreasing"
+                )
+            previous_timestamp = timestamp
         return errors
 
     def _validate_validity_history(self) -> List[str]:

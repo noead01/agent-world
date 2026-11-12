@@ -68,8 +68,9 @@ func _process(_delta: float) -> void:
 			# In Godot 4, parse_string returns the parsed value on success, or Error code on failure
 			if parse_result is Dictionary or parse_result is Array:
 				var msg = parse_result
-				message_received.emit(msg)
 				_handle_incoming(msg)
+				if _can_forward_message(msg):
+					message_received.emit(msg)
 			else:
 				print("WebSocketClient: JSON parse error: %s" % [parse_result])
 	
@@ -147,6 +148,11 @@ func _handle_incoming(msg: Dictionary) -> void:
 		_:
 			# Forward to ProtocolHandler for other types
 			pass
+
+func _can_forward_message(msg: Dictionary) -> bool:
+	if msg.get("type", "") in ["Action", "Intention"]:
+		return _state == ConnectionState.CONNECTED
+	return true
 
 func _flush_pending_messages() -> void:
 	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:

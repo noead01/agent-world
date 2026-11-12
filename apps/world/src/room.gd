@@ -41,6 +41,7 @@ var _ws_client_template = preload("res://src/websocket_client.gd")
 var _protocol_handler_template = preload("res://src/protocol_handler.gd")
 var _event_recorder_template = preload("res://src/event_recorder.gd")
 var _event_recorder
+var _active_action_context: Dictionary = {}
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -393,6 +394,11 @@ func _lifecycle_action_id(command_id: String, action_type_id: String) -> String:
 	return "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1]
 
 func _on_agent_action_started(action_type_id: String, target_instance_id: String, command_id: String) -> void:
+	_active_action_context = {
+		"action_type_id": action_type_id,
+		"target_instance_id": target_instance_id,
+		"command_id": command_id,
+	}
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -412,10 +418,20 @@ func _on_agent_action_started(action_type_id: String, target_instance_id: String
 	
 	_append_domain_event("agent_action_started", target_instance_id, {
 		"action_type": action_type_id,
+		"command_id": command_id,
 		"description": "Agent started %s action" % [action_type_id],
 	})
 
+func _take_action_context(action_type_id: String, command_id: String) -> Dictionary:
+	var context = _active_action_context
+	if context.get("action_type_id", "") != action_type_id \
+			or context.get("command_id", "") != command_id:
+		return {"target_instance_id": "", "command_id": command_id}
+	_active_action_context = {}
+	return context
+
 func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
+	var context = _take_action_context(action_type_id, command_id)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -425,7 +441,7 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 			"version": "1.0.0",
 			"agent_id": _agent.agent_id,
 			"action_type_id": action_type_id,
-			"target_instance_id": "",
+			"target_instance_id": context["target_instance_id"],
 			"parameters": {},
 			"intention_id": "",
 			"result": result,
@@ -433,13 +449,15 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 		}
 		_protocol_handler.send_action(action)
 	
-	_append_domain_event("agent_action_completed", "", {
+	_append_domain_event("agent_action_completed", context["target_instance_id"], {
 		"action_type": action_type_id,
+		"command_id": command_id,
 		"result": result,
 		"description": "Agent completed %s action with result: %s" % [action_type_id, result],
 	})
 
 func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
+	var context = _take_action_context(action_type_id, command_id)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -449,7 +467,7 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 			"version": "1.0.0",
 			"agent_id": _agent.agent_id,
 			"action_type_id": action_type_id,
-			"target_instance_id": "",
+			"target_instance_id": context["target_instance_id"],
 			"parameters": {},
 			"intention_id": "",
 			"result": "failure",
@@ -457,13 +475,15 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 		}
 		_protocol_handler.send_action(action)
 	
-	_append_domain_event("agent_action_failed", "", {
+	_append_domain_event("agent_action_failed", context["target_instance_id"], {
 		"action_type": action_type_id,
+		"command_id": command_id,
 		"reason": reason,
 		"description": "Agent %s action failed: %s" % [action_type_id, reason],
 	})
 
 func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
+	var context = _take_action_context(action_type_id, command_id)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -473,7 +493,7 @@ func _on_agent_action_interrupted(action_type_id: String, command_id: String) ->
 			"version": "1.0.0",
 			"agent_id": _agent.agent_id,
 			"action_type_id": action_type_id,
-			"target_instance_id": "",
+			"target_instance_id": context["target_instance_id"],
 			"parameters": {},
 			"intention_id": "",
 			"result": "failure",
@@ -481,8 +501,9 @@ func _on_agent_action_interrupted(action_type_id: String, command_id: String) ->
 		}
 		_protocol_handler.send_action(action)
 	
-	_append_domain_event("agent_action_interrupted", "", {
+	_append_domain_event("agent_action_interrupted", context["target_instance_id"], {
 		"action_type": action_type_id,
+		"command_id": command_id,
 		"description": "Agent %s action interrupted" % [action_type_id],
 	})
 

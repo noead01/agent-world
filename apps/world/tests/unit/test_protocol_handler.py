@@ -53,6 +53,13 @@ def test_incoming_commands_validate_session_context_before_execution():
     assert "correlation.get(\"run_id\", \"\") != run_id" in content
     assert "correlation.get(\"agent_id\", \"\") != agent_id" in content
 
+def test_incoming_command_revision_accepts_integral_json_float():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "request_revision = _normalize_world_revision(message.get(\"request_world_revision\"))" in content
+    assert "correlation_revision = _normalize_world_revision(correlation.get(\"world_revision\"))" in content
+    assert "floor(value) != value" in content
+
 if __name__ == "__main__":
     import sys
     tests = [

@@ -10,7 +10,7 @@ dependencies:
 branch: feature/todo-0010-append-only-run-recording
 pull_request: null
 created: 2026-10-29
-updated: 2026-11-10
+updated: 2026-11-12
 ---
 
 # Create append-only run recording
@@ -48,6 +48,8 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
 - 2026-11-10 — `done`: Implementation complete, all acceptance criteria verified.
+- 2026-11-12 — `in-progress`: Reopened to address PR #10 review findings.
+- 2026-11-12 — `done`: Review findings fixed and unit verification passed.
 
 ## Notes
 

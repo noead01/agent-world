@@ -157,6 +157,23 @@ def test_validate_requires_invalidation_for_aborted_run():
 
     assert any("Terminal validity" in error for error in record.validate())
 
+
+def test_validate_rejects_decreasing_event_timestamps():
+    first = _event("run_started", "evt_1")
+    first["timestamp_s"] = 0.0
+    middle = _event("object_moved", "evt_2")
+    middle["timestamp_s"] = 9.0
+    reordered = _event("object_moved", "evt_3")
+    reordered["timestamp_s"] = 2.0
+    ended = _event("run_ended", "evt_4")
+    ended["timestamp_s"] = 10.0
+    record = _record(
+        events=[first, middle, reordered, ended],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+    )
+
+    assert any("timestamp_s" in error and "nondecreasing" in error for error in record.validate())
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

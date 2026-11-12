@@ -162,9 +162,9 @@ func _validate_incoming_command(message: Dictionary) -> String:
 	if not correlation.has_all(["world_revision", "simulation_tick", "simulation_time", "component"]):
 		return "Command correlation context is incomplete"
 
-	var request_revision = message.get("request_world_revision")
-	if not request_revision is int or request_revision < 0 \
-			or correlation.get("world_revision") != request_revision:
+	var request_revision = _normalize_world_revision(message.get("request_world_revision"))
+	var correlation_revision = _normalize_world_revision(correlation.get("world_revision"))
+	if request_revision < 0 or correlation_revision != request_revision:
 		return "Command world revision is invalid or inconsistent"
 	var kind_field = "action_type_id" if command_type == "Action" else "intention_type_id"
 	var timestamp = message.get("timestamp_s")
@@ -174,6 +174,11 @@ func _validate_incoming_command(message: Dictionary) -> String:
 	if (not timestamp is int and not timestamp is float) or timestamp < 0:
 		return "Command timestamp is invalid"
 	return ""
+
+func _normalize_world_revision(value: Variant) -> int:
+	if (not value is int and not value is float) or value < 0 or floor(value) != value:
+		return -1
+	return int(value)
 
 func _on_error(msg: Dictionary) -> void:
 	var code = msg.get("code", "")

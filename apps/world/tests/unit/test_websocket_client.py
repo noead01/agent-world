@@ -49,6 +49,13 @@ def test_state_machine():
     assert "CONNECTED" in content or "connected" in content.lower(), "Should have CONNECTED state"
     assert "DISCONNECTED" in content or "disconnected" in content.lower(), "Should have DISCONNECTED state"
 
+def test_commands_are_forwarded_only_after_handshake():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "if _can_forward_message(msg):" in content
+    assert "func _can_forward_message(msg: Dictionary) -> bool:" in content
+    assert "_state == ConnectionState.CONNECTED" in content
+
 if __name__ == "__main__":
     import sys
     tests = [

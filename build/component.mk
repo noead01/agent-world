@@ -21,5 +21,12 @@ build format format-check lint clean:
 validate:
 	@python3 '$(REPOSITORY_ROOT)/tools/repository/validate.py' --component '$(COMPONENT_ROOT)'
 
-test-unit test-integration test-acceptance:
+test-unit:
+ifdef COMPONENT_TEST_UNIT
+	@$(COMPONENT_TEST_UNIT)
+else
+	@printf '%s: %s has no testable implementation yet\n' '$(COMPONENT_NAME)' '$@'
+endif
+
+test-integration test-acceptance:
 	@printf '%s: %s has no testable implementation yet\n' '$(COMPONENT_NAME)' '$@'

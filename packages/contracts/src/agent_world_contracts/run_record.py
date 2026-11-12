@@ -136,6 +136,7 @@ class RunRecord:
                 errors.append(f"Validity {i}: {e.message}")
 
         errors.extend(self._validate_validity_history())
+        errors.extend(self._validate_terminal_validity())
         
         # Check run_id consistency
         for event in self.events:
@@ -185,6 +186,21 @@ class RunRecord:
             previous_validity = current_validity
 
         return errors
+
+    def _validate_terminal_validity(self) -> List[str]:
+        expected = {"completed": "valid", "aborted": "invalid"}.get(self.status)
+        if expected is None:
+            return []
+        if (
+            len(self.validity_history) < 2
+            or self.get_final_validity() != expected
+            or self.validity_history[-1].get("previous_validity")
+            != self.validity_history[-2].get("validity")
+        ):
+            return [
+                f"Terminal validity for {self.status} run must be {expected!r}"
+            ]
+        return []
     
     def _as_run_dict(self) -> Dict[str, Any]:
         run_metadata = {

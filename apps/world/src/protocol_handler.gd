@@ -7,6 +7,7 @@ signal intention_sent(intention: Dictionary)
 signal action_received(action: Dictionary)
 signal action_result_received(result: Dictionary)
 signal stale_request_rejected(request_id: String, current_revision: int)
+signal invalid_command_rejected(request_id: String, reason: String)
 
 @export var agent_id: String = "wanderer_01"
 @export var run_id: String = "run_001"
@@ -105,6 +106,11 @@ func _on_action_result(msg: Dictionary) -> void:
 
 func _on_action_received(action: Dictionary) -> void:
 	var request_id: String = String(action.get("id", ""))
+	var validation_error := _validate_incoming_command(action)
+	if validation_error != "":
+		invalid_command_rejected.emit(request_id, validation_error)
+		return
+
 	if request_id != "" and _received_commands.has(request_id):
 		# A reconnect may resend a command already accepted by this world. Leave
 		# an active command alone, or replay its terminal result if it completed.
@@ -136,6 +142,38 @@ func _on_action_received(action: Dictionary) -> void:
 	# Emit signal for Room to handle - Room will call Agent.execute_action()
 	print("ProtocolHandler: Received action/intention: %s" % [action])
 	action_received.emit(action)
+
+func _validate_incoming_command(message: Dictionary) -> String:
+	var command_type = message.get("type", "")
+	if command_type not in ["Action", "Intention"]:
+		return "Unsupported command type"
+	if message.get("run_id", "") != run_id or message.get("agent_id", "") != agent_id:
+		return "Command run_id or agent_id does not match this session"
+
+	var correlation = message.get("correlation")
+	if not correlation is Dictionary:
+		return "Command correlation context is missing"
+	if correlation.get("experiment_id", "") != experiment_id \
+			or correlation.get("scenario_id", "") != scenario_id \
+			or correlation.get("scenario_version", "") != scenario_version \
+			or correlation.get("run_id", "") != run_id \
+			or correlation.get("agent_id", "") != agent_id:
+		return "Command correlation context does not match this session"
+	if not correlation.has_all(["world_revision", "simulation_tick", "simulation_time", "component"]):
+		return "Command correlation context is incomplete"
+
+	var request_revision = message.get("request_world_revision")
+	if not request_revision is int or request_revision < 0 \
+			or correlation.get("world_revision") != request_revision:
+		return "Command world revision is invalid or inconsistent"
+	var kind_field = "action_type_id" if command_type == "Action" else "intention_type_id"
+	var timestamp = message.get("timestamp_s")
+	if message.get("id", "") == "" or message.get("version", "") == "" \
+			or message.get(kind_field, "") == "":
+		return "Command identity, version, or kind is missing"
+	if (not timestamp is int and not timestamp is float) or timestamp < 0:
+		return "Command timestamp is invalid"
+	return ""
 
 func _on_error(msg: Dictionary) -> void:
 	var code = msg.get("code", "")

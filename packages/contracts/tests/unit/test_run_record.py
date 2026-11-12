@@ -137,6 +137,26 @@ def test_validate_rejects_discontinuous_terminal_validity_history():
     assert any("terminal state" in error for error in errors)
     assert not record.is_valid()
 
+
+def test_validate_requires_terminal_validity_for_completed_run():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("valid", None)],
+    )
+
+    assert any("Terminal validity" in error for error in record.validate())
+    assert not record.is_valid()
+
+
+def test_validate_requires_invalidation_for_aborted_run():
+    record = _record(
+        events=[_event("run_started", "evt_1")],
+        validity_history=[_validity("valid", None)],
+        status="aborted",
+    )
+
+    assert any("Terminal validity" in error for error in record.validate())
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

@@ -46,6 +46,13 @@ def test_staleness_check():
     assert "stale" in content.lower() or "STALE" in content
     assert "world_revision" in content
 
+def test_incoming_commands_validate_session_context_before_execution():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "_validate_incoming_command(action)" in content
+    assert "correlation.get(\"run_id\", \"\") != run_id" in content
+    assert "correlation.get(\"agent_id\", \"\") != agent_id" in content
+
 if __name__ == "__main__":
     import sys
     tests = [

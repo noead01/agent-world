@@ -39,9 +39,6 @@ class AgentService:
         # Per-run agent state that survives transient socket disconnects so a
         # reconnect resumes the deterministic sequence instead of restarting it.
         self.agent_sessions: Dict[str, MockAgent] = {}  # "<agent_id>:<run_id>" -> MockAgent
-        self.world_revision = 0
-        self.simulation_tick = 0
-        self.simulation_time = 0.0
         self._running = False
         self._tick_task: Optional[asyncio.Task] = None
         
@@ -133,9 +130,11 @@ class AgentService:
             scenario_version=self.scenario_version,
             run_id=client_run_id,
             agent_id=agent_id,
-            world_revision=self.world_revision,
-            simulation_tick=self.simulation_tick,
-            simulation_time=self.simulation_time,
+            # Acknowledgments cannot borrow revision state from another run or
+            # client. The agent waits for this session's first WorldState.
+            world_revision=hello.correlation.world_revision,
+            simulation_tick=hello.correlation.simulation_tick,
+            simulation_time=hello.correlation.simulation_time,
             trace_id=hello.correlation.trace_id or uuid.uuid4().hex,
             span_id=uuid.uuid4().hex[:16],
             component="agent",
@@ -186,7 +185,7 @@ class AgentService:
             protocol_version=PROTOCOL_VERSION,
             server_id="agent-service-01",
             accepted_capabilities=hello.capabilities,
-            initial_world_revision=self.world_revision,
+            initial_world_revision=hello.correlation.world_revision,
             correlation=correlation
         )
         await websocket.send(serialize_message(ack))
@@ -197,12 +196,6 @@ class AgentService:
     async def _route_message(self, client: Dict, msg) -> None:
         """Route incoming message to mock agent."""
         mock_agent = client["mock_agent"]
-        
-        # Update world revision from WorldState first
-        if isinstance(msg, WorldState):
-            self.world_revision = msg.world_revision
-            self.simulation_tick = msg.simulation_tick
-            self.simulation_time = msg.simulation_time
         
         # Route to mock agent
         if isinstance(msg, WorldState):

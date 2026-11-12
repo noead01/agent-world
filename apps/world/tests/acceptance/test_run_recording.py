@@ -26,7 +26,7 @@ def test_complete_run_recording():
             "simulation_time_s": 10.0,
             "status": "completed",
             "random_seed": 42,
-            "config_fingerprint": "abc123",
+            "config_fingerprint": "a" * 64,
         }
         with open(os.path.join(run_dir, "run.json"), "w") as f:
             json.dump(run_meta, f)
@@ -56,6 +56,7 @@ def test_complete_run_recording():
         errors = record.validate()
         
         assert len(errors) == 0, f"Validation errors: {errors}"
+        assert record.config_fingerprint == "a" * 64
         assert record.run_id == "run_test_001"
         assert record.scenario_id == "first_benchmark_room"
         assert record.get_event_count() == 6

@@ -22,6 +22,7 @@ var _current_simulation_tick: int = 0
 var _current_simulation_time: float = 0.0
 var _tick_counter: int = 0
 var _pending_requests: Dictionary = {}  # request_id -> {type, correlation, timestamp}
+var _received_commands: Dictionary = {}  # command_id -> {terminal_result}
 var _trace_id: String = ""
 
 func _ready() -> void:
@@ -103,6 +104,15 @@ func _on_action_result(msg: Dictionary) -> void:
 	action_result_received.emit(msg)
 
 func _on_action_received(action: Dictionary) -> void:
+	var request_id: String = String(action.get("id", ""))
+	if request_id != "" and _received_commands.has(request_id):
+		# A reconnect may resend a command already accepted by this world. Leave
+		# an active command alone, or replay its terminal result if it completed.
+		var received: Dictionary = _received_commands[request_id]
+		if received.has("terminal_result"):
+			send_action(received["terminal_result"])
+		return
+
 	# Check for stale request
 	var request_revision = action.get("request_world_revision", 0)
 	if request_revision < _current_world_revision - stale_threshold:
@@ -121,6 +131,8 @@ func _on_action_received(action: Dictionary) -> void:
 		stale_request_rejected.emit(action.get("id", ""), _current_world_revision)
 		return
 	
+	if request_id != "":
+		_received_commands[request_id] = {}
 	# Emit signal for Room to handle - Room will call Agent.execute_action()
 	print("ProtocolHandler: Received action/intention: %s" % [action])
 	action_received.emit(action)
@@ -186,6 +198,8 @@ func send_action(action: Dictionary) -> void:
 	msg["correlation"] = correlation
 	msg["request_world_revision"] = _current_world_revision
 	_pending_requests[msg["id"]] = {"type": "action", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
+	if _received_commands.has(msg["id"]) and msg.get("result", "") != "pending":
+		_received_commands[msg["id"]]["terminal_result"] = msg.duplicate(true)
 	_websocket_client.send_message(msg)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 

@@ -78,6 +78,11 @@ func _ready() -> void:
 
 	# Derive random_seed from run_id for reproducibility
 	var random_seed = hash(run_id) & 0x7FFFFFFF
+	var config_fingerprint = _compute_config_fingerprint()
+	if config_fingerprint == "":
+		push_error("Room: Failed to compute configuration fingerprint")
+		get_tree().quit()
+		return
 
 	# Start recording
 	var success = _event_recorder.start_run(
@@ -85,7 +90,7 @@ func _ready() -> void:
 		"first_benchmark_room",
 		_agent.agent_id,
 		random_seed,
-		""   # config_fingerprint - TODO: compute from configs
+		config_fingerprint
 	)
 	if not success:
 		print("ERROR: Failed to start event recorder")
@@ -156,6 +161,61 @@ func _ready() -> void:
 	print("Objects spawned: %d" % [objects.size()])
 	print("Simulation time: %d Hz fixed step, day cycle %ds" % [int(fixed_timestep_hz), int(_sim_time.day_cycle_duration_s)])
 	print("=================================")
+
+func _compute_config_fingerprint() -> String:
+	var object_configs: Array = []
+	for obj in objects:
+		var object_config: Dictionary = obj.get_metadata()
+		object_config.erase("is_sleeping")
+		object_configs.append(object_config)
+
+	var config = {
+		"scenario_id": "first_benchmark_room",
+		"scenario_version": "1.0.0",
+		"world": {
+			"half_size": {"x": half_size.x, "y": half_size.y, "z": half_size.z},
+			"gravity": {"x": gravity.x, "y": gravity.y, "z": gravity.z},
+			"fixed_timestep_hz": fixed_timestep_hz,
+			"physics_engine": "JoltPhysics",
+			"boundary_thickness_m": 0.2,
+		},
+		"agent": {
+			"agent_id": _agent.agent_id,
+			"agent_type_id": _agent.agent_type_id,
+			"move_speed": _agent.move_speed,
+			"turn_speed": _agent.turn_speed,
+			"reach_distance": _agent.reach_distance,
+			"spawn_position": {
+				"x": _agent.spawn_position.x,
+				"y": _agent.spawn_position.y,
+				"z": _agent.spawn_position.z,
+			},
+			"collision_shape": {"type": "capsule", "radius_m": 0.3, "height_m": 1.0},
+		},
+		"objects": object_configs,
+		"simulation": {"day_cycle_duration_s": _sim_time.day_cycle_duration_s},
+	}
+	var canonical_json: String = JSON.stringify(_canonicalize_config(config))
+	var hashing_context := HashingContext.new()
+	if hashing_context.start(HashingContext.HASH_SHA256) != OK:
+		return ""
+	hashing_context.update(canonical_json.to_utf8_buffer())
+	return hashing_context.finish().hex_encode()
+
+func _canonicalize_config(value: Variant) -> Variant:
+	if value is Dictionary:
+		var canonical: Dictionary = {}
+		var keys: Array = value.keys()
+		keys.sort()
+		for key in keys:
+			canonical[key] = _canonicalize_config(value[key])
+		return canonical
+	if value is Array:
+		var canonical: Array = []
+		for item in value:
+			canonical.append(_canonicalize_config(item))
+		return canonical
+	return value
 
 func _physics_process(delta: float) -> void:
 	# Advance simulation time through fixed physics steps

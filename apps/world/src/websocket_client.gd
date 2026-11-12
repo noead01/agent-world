@@ -7,11 +7,12 @@ signal disconnected(reason: String)
 signal message_received(message: Dictionary)
 signal error(code: String, message: String)
 
-enum ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
+enum ConnectionState { DISCONNECTED, CONNECTING, HANDSHAKING, CONNECTED, RECONNECTING }
 
 @export var url: String = "ws://localhost:8765"
 @export var reconnect_max_attempts: int = 10
 @export var heartbeat_interval_s: float = 5.0
+@export var hello_ack_timeout_s: float = 10.0
 
 # Configurable fields for Hello message
 var _hello_run_id: String = "run_001"
@@ -26,15 +27,18 @@ var _reconnect_attempt: int = 0
 var _pending_messages: Array[Dictionary] = []
 var _request_id_counter: int = 0
 var _trace_id: String = ""
+var _handshake_started_msec: int = 0
 
 func _ready() -> void:
-	_peer = WebSocketPeer.new()
+	_create_peer()
 	_trace_id = Crypto.new().generate_random_bytes(16).hex_encode()
-	# Godot's WebSocketPeer has no send_ping()/get_pending_pings() API; ping
-	# frames are managed by the built-in heartbeat_interval property.
-	_peer.heartbeat_interval = heartbeat_interval_s
 	set_process(true)
 	set_physics_process(false)
+
+func _create_peer() -> void:
+	_peer = WebSocketPeer.new()
+	# Godot manages protocol ping frames through heartbeat_interval.
+	_peer.heartbeat_interval = heartbeat_interval_s
 
 func get_trace_id() -> String:
 	return _trace_id
@@ -73,12 +77,19 @@ func _process(_delta: float) -> void:
 	match _state:
 		ConnectionState.CONNECTING:
 			if _peer.get_ready_state() == WebSocketPeer.STATE_OPEN:
-				_state = ConnectionState.CONNECTED
+				_state = ConnectionState.HANDSHAKING
+				_handshake_started_msec = Time.get_ticks_msec()
 				# Do not reset _reconnect_attempt here: _send_hello() uses it to
 				# advertise reconnect=true. It is reset only after HelloAck.
 				_send_hello()
 			elif _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
 				_on_disconnected("Connection closed during handshake")
+
+		ConnectionState.HANDSHAKING:
+			if _peer.get_ready_state() == WebSocketPeer.STATE_CLOSED:
+				_on_disconnected("Connection closed before HelloAck")
+			elif Time.get_ticks_msec() - _handshake_started_msec >= hello_ack_timeout_s * 1000.0:
+				_on_disconnected("Timed out waiting for HelloAck")
 				
 		ConnectionState.CONNECTED:
 			# Detect closed peers while connected; the heartbeat is handled by
@@ -120,6 +131,9 @@ func _handle_incoming(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
 	match msg_type:
 		"HelloAck":
+			if _state != ConnectionState.HANDSHAKING:
+				return
+			_state = ConnectionState.CONNECTED
 			# Handshake accepted: now it is safe to clear the backoff counter.
 			_reconnect_attempt = 0
 			connected.emit(msg.get("server_id", "unknown"))
@@ -146,6 +160,11 @@ func _flush_pending_messages() -> void:
 
 func _on_disconnected(reason: String) -> void:
 	_state = ConnectionState.DISCONNECTED
+	# A timed-out handshake can leave the transport open. Replace the peer so a
+	# retry always starts with a fresh WebSocketPeer instance.
+	if _peer != null:
+		_peer.close()
+	_create_peer()
 	disconnected.emit(reason)
 	_schedule_reconnect()
 

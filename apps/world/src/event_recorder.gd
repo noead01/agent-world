@@ -72,7 +72,7 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		_fail_run("Failed to open events file: %s" % [events_path])
 		return false
 
-	# Initialize run metadata (config_fingerprint not in run.schema.json)
+	# Keep the effective configuration fingerprint with the run metadata.
 	var now_str = _get_utc_timestamp()
 	_run_metadata = {
 		"id": run_id,
@@ -85,6 +85,8 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 		"status": "running",
 		"random_seed": random_seed,
 	}
+	if config_fingerprint != "":
+		_run_metadata["config_fingerprint"] = config_fingerprint
 
 	# Write run metadata and verify the write actually succeeded
 	var metadata_path = "%s/run.json" % [_current_run_path]

@@ -52,6 +52,7 @@ class RunRecord:
     events: List[Dict[str, Any]] = field(default_factory=list)
     validity_history: List[Dict[str, Any]] = field(default_factory=list)
     run_dir: str = ""
+    _raw_run_metadata: Optional[Dict[str, Any]] = field(default=None, repr=False)
     
     @classmethod
     def load(cls, run_dir: str) -> "RunRecord":
@@ -100,6 +101,7 @@ class RunRecord:
             events=events,
             validity_history=validity_history,
             run_dir=str(run_path),
+            _raw_run_metadata=run_meta,
         )
     
     def validate(self) -> List[str]:
@@ -112,7 +114,8 @@ class RunRecord:
         
         # Validate run metadata
         try:
-            validate(instance=self._as_run_dict(), schema=RUN_SCHEMA, format_checker=FORMAT_CHECKER)
+            run_metadata = self._raw_run_metadata if self._raw_run_metadata is not None else self._as_run_dict()
+            validate(instance=run_metadata, schema=RUN_SCHEMA, format_checker=FORMAT_CHECKER)
         except ValidationError as e:
             errors.append(f"Run metadata: {e.message}")
         
@@ -142,7 +145,7 @@ class RunRecord:
         return errors
     
     def _as_run_dict(self) -> Dict[str, Any]:
-        return {
+        run_metadata = {
             "id": self.run_id,
             "scenario_id": self.scenario_id,
             "version": self.version,
@@ -153,6 +156,9 @@ class RunRecord:
             "status": self.status,
             "random_seed": self.random_seed,
         }
+        if self.config_fingerprint:
+            run_metadata["config_fingerprint"] = self.config_fingerprint
+        return run_metadata
     
     def get_events(self, event_type_id: Optional[str] = None) -> List[Dict[str, Any]]:
         if event_type_id is None:

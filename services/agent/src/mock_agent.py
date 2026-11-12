@@ -1,8 +1,9 @@
 """Deterministic mock agent - replaces MockController logic."""
+import json
 import asyncio
-import uuid
-import time
 import random
+import time
+import uuid
 from typing import Callable, Awaitable, Dict, Any, List, Optional
 from .schemas import (
     Intention, Action, WorldState, Observation, CorrelationContext, Hello, HelloAck, Error
@@ -44,6 +45,8 @@ class MockAgent:
         self.pending_requests: Dict[str, Dict] = {}  # request_id -> {type, timestamp, target_index, payload}
         self._action_in_progress: bool = False  # Track if action is awaiting result
         self._active_request_id: Optional[str] = None  # Command whose terminal result is awaited
+        self._resume_pending: bool = False
+        self._awaiting_world_state: bool = False
         
     def set_targets(self, targets: List[Dict[str, Any]]) -> None:
         """Set the action target sequence."""
@@ -73,15 +76,8 @@ class MockAgent:
     async def on_hello_ack(self, ack: HelloAck, resume: bool = False) -> None:
         """Handle handshake acknowledgment."""
         self.correlation_base = ack.correlation
-        if not resume:
-            # Start the sequence on a fresh session.
-            if self.targets:
-                await self._issue_next_action(ack.correlation.world_revision, ack.correlation.simulation_tick, ack.correlation.simulation_time)
-            return
-        # Resuming: retransmit an in-flight command. If the disconnect happened
-        # before the world received it, retaining the flag alone would leave the
-        # sequence stalled waiting for a result that will never arrive.
-        await self._retransmit_active_request()
+        self._resume_pending = resume
+        self._awaiting_world_state = True
 
     async def _retransmit_active_request(self) -> None:
         """Re-send the command whose terminal result we are still waiting on."""
@@ -89,6 +85,19 @@ class MockAgent:
             return
         request = self.pending_requests.get(self._active_request_id)
         if request and request.get("payload"):
+            # Refresh revision and correlation from this session's first state.
+            # Keep the command ID so the world can deduplicate a request that
+            # was accepted before the connection dropped.
+            payload = json.loads(request["payload"])
+            state = self.last_world_state
+            payload["request_world_revision"] = state.world_revision
+            payload["timestamp_s"] = state.simulation_time
+            payload["correlation"] = self._make_correlation(
+                state.world_revision,
+                state.simulation_tick,
+                state.simulation_time,
+            ).model_dump(exclude_none=True)
+            request["payload"] = json.dumps(payload, separators=(",", ":"))
             await self.send(request["payload"])
             return
         # Fallback when no serialized payload was retained: reissue the same
@@ -111,6 +120,11 @@ class MockAgent:
         self.last_world_state = state
         # Update correlation base with latest world revision
         self.correlation_base = state.correlation
+        if self._awaiting_world_state:
+            self._awaiting_world_state = False
+            if self._resume_pending:
+                self._resume_pending = False
+                await self._retransmit_active_request()
         
     async def on_observation(self, observation: Observation) -> None:
         """Handle observation (currently no-op for mock)."""
@@ -158,6 +172,8 @@ class MockAgent:
     
     async def run_tick(self, delta: float) -> None:
         """Main tick - called periodically to issue actions."""
+        if self._awaiting_world_state:
+            return
         if self.cooldown_timer > 0:
             self.cooldown_timer -= delta
             return

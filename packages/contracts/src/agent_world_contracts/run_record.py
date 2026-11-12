@@ -111,6 +111,8 @@ class RunRecord:
             errors.append("Event stream is empty; run_started event is missing")
         if not self.validity_history:
             errors.append("Validity history is empty; initial validity record is missing")
+
+        errors.extend(self._validate_event_boundaries())
         
         # Validate run metadata
         try:
@@ -132,6 +134,8 @@ class RunRecord:
                 validate(instance=validity, schema=VALIDITY_SCHEMA, format_checker=FORMAT_CHECKER)
             except ValidationError as e:
                 errors.append(f"Validity {i}: {e.message}")
+
+        errors.extend(self._validate_validity_history())
         
         # Check run_id consistency
         for event in self.events:
@@ -142,6 +146,44 @@ class RunRecord:
             if validity.get("run_id") != self.run_id:
                 errors.append(f"Validity record has mismatched run_id: {validity.get('run_id')} != {self.run_id}")
         
+        return errors
+
+    def _validate_event_boundaries(self) -> List[str]:
+        if not self.events:
+            return []
+
+        event_types = [event.get("event_type_id") for event in self.events]
+        errors = []
+        if event_types[0] != "run_started" or event_types.count("run_started") != 1:
+            errors.append("Event stream must begin with exactly one run_started event")
+
+        has_run_ended = event_types.count("run_ended") > 0
+        if self.status == "completed":
+            if event_types[-1] != "run_ended" or event_types.count("run_ended") != 1:
+                errors.append("Completed event stream must end with exactly one run_ended event")
+        elif has_run_ended:
+            errors.append("Only completed runs may contain a run_ended event")
+        return errors
+
+    def _validate_validity_history(self) -> List[str]:
+        errors = []
+        previous_validity = None
+        terminal_states = {"invalid", "aborted"}
+
+        for index, record in enumerate(self.validity_history):
+            declared_previous = record.get("previous_validity")
+            current_validity = record.get("validity")
+            if declared_previous != previous_validity:
+                errors.append(
+                    f"Validity {index} declares previous_validity {declared_previous!r}; "
+                    f"expected {previous_validity!r}"
+                )
+            if previous_validity in terminal_states and current_validity != previous_validity:
+                errors.append(
+                    f"Validity {index} recovers from terminal state {previous_validity!r}"
+                )
+            previous_validity = current_validity
+
         return errors
     
     def _as_run_dict(self) -> Dict[str, Any]:
@@ -171,7 +213,7 @@ class RunRecord:
         return self.validity_history[-1].get("validity")
     
     def is_valid(self) -> bool:
-        return self.get_final_validity() == "valid"
+        return self.get_final_validity() == "valid" and not self.validate()
     
     def get_event_count(self) -> int:
         return len(self.events)

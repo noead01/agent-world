@@ -6,6 +6,50 @@ import json
 
 from agent_world_contracts.run_record import RunRecord
 
+
+def _record(events, validity_history, status="completed"):
+    return RunRecord(
+        run_id="run_test",
+        scenario_id="test_scenario",
+        version="1.0.0",
+        agent_id="agent_01",
+        started_at="2026-11-10T00:00:00Z",
+        ended_at="2026-11-10T00:01:00Z" if status == "completed" else None,
+        simulation_time_s=60.0,
+        status=status,
+        random_seed=42,
+        events=events,
+        validity_history=validity_history,
+    )
+
+
+def _event(event_type_id, event_id):
+    return {
+        "id": event_id,
+        "run_id": "run_test",
+        "timestamp_s": 0.0,
+        "version": "1.0.0",
+        "event_type_id": event_type_id,
+        "target_instance_id": "",
+        "description": "",
+        "severity": "info",
+        "metadata": {},
+    }
+
+
+def _validity(current, previous):
+    return {
+        "run_id": "run_test",
+        "validity": current,
+        "previous_validity": previous,
+        "transition_reason": "",
+        "evaluated_at": "2026-11-10T00:00:00Z",
+        "evaluator_component": "event_recorder",
+        "evidence_summary": "",
+        "invalidating_event_ids": [],
+        "version": "1.0.0",
+    }
+
 def test_load_run_record():
     with tempfile.TemporaryDirectory() as tmpdir:
         run_dir = os.path.join(tmpdir, "run_test")
@@ -67,6 +111,31 @@ def test_validate_run_record():
         record = RunRecord.load(run_dir)
         errors = record.validate()
         assert len(errors) == 0
+
+
+def test_validate_requires_completed_run_boundaries():
+    record = _record(
+        events=[_event("agent_action_started", "evt_1")],
+        validity_history=[_validity("valid", None)],
+    )
+
+    errors = record.validate()
+
+    assert any("run_started" in error for error in errors)
+    assert any("run_ended" in error for error in errors)
+
+
+def test_validate_rejects_discontinuous_terminal_validity_history():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("invalid", None), _validity("valid", "valid")],
+    )
+
+    errors = record.validate()
+
+    assert any("previous_validity" in error for error in errors)
+    assert any("terminal state" in error for error in errors)
+    assert not record.is_valid()
 
 if __name__ == "__main__":
     test_load_run_record()

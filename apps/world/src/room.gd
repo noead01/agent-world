@@ -30,11 +30,18 @@ var _demo_resume_time: float = 4.0
 var _demo_scale_time: float = 6.0
 var _demo_reset_time: float = 8.0
 var _demo_phase: String = "normal"
+var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
+var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
 
 var _agent
-var _mock_controller
+var _ws_client
+var _protocol_handler
 var _agent_template = preload("res://src/agent.gd")
-var _controller_template = preload("res://src/mock_controller.gd")
+var _ws_client_template = preload("res://src/websocket_client.gd")
+var _protocol_handler_template = preload("res://src/protocol_handler.gd")
+var _event_recorder_template = preload("res://src/event_recorder.gd")
+var _event_recorder
+var _active_action_context: Dictionary = {}
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -54,10 +61,96 @@ func _ready() -> void:
 	_sim_time.time_of_day_changed.connect(_animate_day_night)
 
 	# Find the directional light for day/night animation
-	_light = get_node("../DirectionalLight3D")
+	_light = get_node_or_null("DirectionalLight3D")
 
-	# Spawn the embodied agent
+	# Spawn the embodied agent (must be before EventRecorder start_run to have agent_id)
 	_spawn_agent()
+
+	# Create and configure EventRecorder
+	_event_recorder = _event_recorder_template.new()
+	add_child(_event_recorder)
+	_event_recorder.run_failed.connect(_on_run_failed)
+
+	# Generate high-precision run_id using timestamp + milliseconds + random component
+	var timestamp_sec = Time.get_unix_time_from_system()
+	var timestamp_msec = Time.get_ticks_msec()
+	var random_component = randi() % 10000
+	var run_id = "run_%d_%03d_%04d" % [timestamp_sec, timestamp_msec % 1000, random_component]
+
+	# Derive random_seed from run_id for reproducibility
+	var random_seed = hash(run_id) & 0x7FFFFFFF
+	var config_fingerprint = _compute_config_fingerprint()
+	if config_fingerprint == "":
+		push_error("Room: Failed to compute configuration fingerprint")
+		get_tree().quit()
+		return
+
+	# Start recording
+	var success = _event_recorder.start_run(
+		run_id,
+		"first_benchmark_room",
+		_agent.agent_id,
+		random_seed,
+		config_fingerprint
+	)
+	if not success:
+		print("ERROR: Failed to start event recorder")
+		# Without an active recorder the run cannot produce an authoritative
+		# record, so abort initialization instead of launching the simulation.
+		set_process(false)
+		set_physics_process(false)
+		get_tree().quit()
+		return
+	else:
+		# Persist the initial run boundary before any other activity so the
+		# authoritative timeline can reconstruct its starting conditions.
+		var initial_objects: Array = []
+		for obj in objects:
+			var meta: Dictionary = obj.get_metadata()
+			var p: Vector3 = obj.position
+			initial_objects.append({
+				"instance_id": meta["instance_id"],
+				"type_id": meta.get("type_id", "unknown"),
+				"position": {"x": p.x, "y": p.y, "z": p.z},
+				"sleeping": obj.is_sleeping(),
+			})
+		var initial_agent_state: Dictionary = {}
+		if _agent != null:
+			var agent_dict: Dictionary = _agent.get_agent_dict()
+			initial_agent_state = {
+				"id": agent_dict["id"],
+				"status": agent_dict["status"],
+				"position": agent_dict["position"],
+				"heading_radians": agent_dict["heading_radians"],
+			}
+		_append_domain_event("run_started", "", {
+			"description": "Simulation started",
+			"initial_objects": initial_objects,
+			"initial_agent_state": initial_agent_state,
+		})
+
+	# Create WebSocketClient for agent service communication
+	var ws_client = _ws_client_template.new()
+	ws_client.url = "ws://localhost:8765"
+	ws_client.configure_hello(run_id, _agent.agent_id)
+	add_child(ws_client)
+	ws_client.connect_to_server()
+
+	# Create ProtocolHandler with generated run_id
+	var protocol_handler = _protocol_handler_template.new()
+	protocol_handler.agent_id = _agent.agent_id
+	protocol_handler.run_id = run_id
+	protocol_handler.set_websocket_client(ws_client)
+	add_child(protocol_handler)
+
+	# Store references
+	_ws_client = ws_client
+	_protocol_handler = protocol_handler
+
+	# Connect ProtocolHandler signals
+	_protocol_handler.action_received.connect(_on_action_received)
+	_protocol_handler.action_result_received.connect(_on_action_result)
+	_protocol_handler.stale_request_rejected.connect(_on_stale_request)
 
 	set_process(true)
 	set_physics_process(true)
@@ -70,9 +163,77 @@ func _ready() -> void:
 	print("Simulation time: %d Hz fixed step, day cycle %ds" % [int(fixed_timestep_hz), int(_sim_time.day_cycle_duration_s)])
 	print("=================================")
 
+func _compute_config_fingerprint() -> String:
+	var object_configs: Array = []
+	for obj in objects:
+		var object_config: Dictionary = obj.get_metadata()
+		object_config.erase("is_sleeping")
+		object_configs.append(object_config)
+
+	var config = {
+		"scenario_id": "first_benchmark_room",
+		"scenario_version": "1.0.0",
+		"world": {
+			"half_size": {"x": half_size.x, "y": half_size.y, "z": half_size.z},
+			"gravity": {"x": gravity.x, "y": gravity.y, "z": gravity.z},
+			"fixed_timestep_hz": fixed_timestep_hz,
+			"physics_engine": "JoltPhysics",
+			"boundary_thickness_m": 0.2,
+		},
+		"agent": {
+			"agent_id": _agent.agent_id,
+			"agent_type_id": _agent.agent_type_id,
+			"move_speed": _agent.move_speed,
+			"turn_speed": _agent.turn_speed,
+			"reach_distance": _agent.reach_distance,
+			"spawn_position": {
+				"x": _agent.spawn_position.x,
+				"y": _agent.spawn_position.y,
+				"z": _agent.spawn_position.z,
+			},
+			"collision_shape": {"type": "capsule", "radius_m": 0.3, "height_m": 1.0},
+		},
+		"objects": object_configs,
+		"simulation": {"day_cycle_duration_s": _sim_time.day_cycle_duration_s},
+	}
+	var canonical_json: String = JSON.stringify(_canonicalize_config(config))
+	var hashing_context := HashingContext.new()
+	if hashing_context.start(HashingContext.HASH_SHA256) != OK:
+		return ""
+	hashing_context.update(canonical_json.to_utf8_buffer())
+	return hashing_context.finish().hex_encode()
+
+func _canonicalize_config(value: Variant) -> Variant:
+	if value is Dictionary:
+		var canonical: Dictionary = {}
+		var keys: Array = value.keys()
+		keys.sort()
+		for key in keys:
+			canonical[key] = _canonicalize_config(value[key])
+		return canonical
+	if value is Array:
+		var canonical: Array = []
+		for item in value:
+			canonical.append(_canonicalize_config(item))
+		return canonical
+	return value
+
 func _physics_process(delta: float) -> void:
 	# Advance simulation time through fixed physics steps
 	_sim_time.tick(delta)
+
+	# Send world state via ProtocolHandler
+	if _protocol_handler:
+		# Use a monotonic revision that never resets with the simulation, so a
+		# response delayed across a reset cannot appear newer than the reset world.
+		_world_revision += 1
+		_protocol_handler.tick_world_state(
+			_world_revision,
+			_sim_time.simulation_tick,
+			_sim_time.simulation_time,
+			_agent.get_agent_dict(),
+			_get_nearby_objects()
+		)
 
 	# Demo sequence: pause/resume/time-scale/reset at scheduled times
 	_demo_timer += delta
@@ -89,10 +250,12 @@ func _physics_process(delta: float) -> void:
 		_demo_phase = "scaled"
 		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
 	elif _demo_phase == "scaled" and _demo_timer >= _demo_reset_time:
+		# Accumulate simulation time before reset for monotonic run clock
+		_cumulative_run_time += _sim_time.simulation_time
 		_sim_time.reset()
 		_sim_time.set_time_scale(1.0)
 		_demo_phase = "reset"
-		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
+		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d, cumulative=%.3f)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick, _cumulative_run_time])
 
 	# Apply gravity only when not paused (pause freezes behavior without corrupting state)
 	if not _sim_time.is_paused:
@@ -161,7 +324,203 @@ func _physics_process(delta: float) -> void:
 				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
 			])
 		print("==========================")
+		
+		# Record final world state and run_ended event before ending run
+		if _event_recorder:
+			# Build final world state snapshot
+			var final_objects: Array = []
+			for obj in objects:
+				var meta: Dictionary = obj.get_metadata()
+				var p: Vector3 = obj.position
+				final_objects.append({
+					"instance_id": meta["instance_id"],
+					"type_id": meta.get("type_id", "unknown"),
+					"position": {"x": p.x, "y": p.y, "z": p.z},
+					"sleeping": obj.is_sleeping(),
+				})
+			var final_agent_state: Dictionary = {}
+			if _agent != null:
+				var agent_dict: Dictionary = _agent.get_agent_dict()
+				final_agent_state = {
+					"id": agent_dict["id"],
+					"status": agent_dict["status"],
+					"position": agent_dict["position"],
+					"heading_radians": agent_dict["heading_radians"],
+				}
+			
+			# Emit run_ended domain event
+			_append_domain_event("run_ended", "", {
+				"description": "Simulation ended",
+				"final_objects": final_objects,
+				"final_agent_state": final_agent_state,
+			})
+			
+			# End run with cumulative run time
+			var total_run_time = _cumulative_run_time + _sim_time.simulation_time
+			_event_recorder.end_run(total_run_time)
 		get_tree().quit()
+
+# ProtocolHandler signal handlers
+func _on_action_received(action: Dictionary) -> void:
+	# Agent service sent an Action or Intention command - execute it via Agent
+	if _agent:
+		# Handle both Action (action_type_id) and Intention (intention_type_id) message formats
+		var action_type = action.get("action_type_id", action.get("intention_type_id", ""))
+		var target_id = action.get("target_instance_id", "")
+		# Preserve the command id so terminal results can be correlated with the
+		# exact request the agent service is waiting on.
+		_agent.execute_action(action_type, target_id, action.get("id", ""))
+
+func _on_action_result(result: Dictionary) -> void:
+	# ActionResult received (response to action we sent) - currently not used since agent service drives actions
+	print("Room: ActionResult received: %s" % [result])
+
+func _on_stale_request(request_id: String, current_revision: int) -> void:
+	print("Room: Stale request rejected, current_revision=%d" % [current_revision])
+	# Agent will re-plan automatically via agent service
+
+# EventRecorder signal handlers
+func _on_run_failed(run_id: String, reason: String) -> void:
+	print("RUN FAILED: %s - %s" % [run_id, reason])
+	get_tree().quit()
+
+# Agent action lifecycle handlers - send results to agent service AND record to run
+func _lifecycle_action_id(command_id: String, action_type_id: String) -> String:
+	# Echo the originating command id so the agent can match the terminal result
+	# to the exact request it is waiting on. Fall back to a generated id for
+	# local callers (e.g. the legacy mock controller).
+	if command_id != "":
+		return command_id
+	return "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1]
+
+func _on_agent_action_started(action_type_id: String, target_instance_id: String, command_id: String) -> void:
+	_active_action_context = {
+		"action_type_id": action_type_id,
+		"target_instance_id": target_instance_id,
+		"command_id": command_id,
+	}
+	if _protocol_handler:
+		var action = {
+			"type": "Action",
+			"id": _lifecycle_action_id(command_id, action_type_id),
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"agent_id": _agent.agent_id,
+			"action_type_id": action_type_id,
+			"target_instance_id": target_instance_id,
+			"parameters": {},
+			"intention_id": "",
+			"result": "pending",
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_started", target_instance_id, {
+		"action_type": action_type_id,
+		"command_id": command_id,
+		"description": "Agent started %s action" % [action_type_id],
+	})
+
+func _take_action_context(action_type_id: String, command_id: String) -> Dictionary:
+	var context = _active_action_context
+	if context.get("action_type_id", "") != action_type_id \
+			or context.get("command_id", "") != command_id:
+		return {"target_instance_id": "", "command_id": command_id}
+	_active_action_context = {}
+	return context
+
+func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
+	var context = _take_action_context(action_type_id, command_id)
+	if _protocol_handler:
+		var action = {
+			"type": "Action",
+			"id": _lifecycle_action_id(command_id, action_type_id),
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"agent_id": _agent.agent_id,
+			"action_type_id": action_type_id,
+			"target_instance_id": context["target_instance_id"],
+			"parameters": {},
+			"intention_id": "",
+			"result": result,
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_completed", context["target_instance_id"], {
+		"action_type": action_type_id,
+		"command_id": command_id,
+		"result": result,
+		"description": "Agent completed %s action with result: %s" % [action_type_id, result],
+	})
+
+func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
+	var context = _take_action_context(action_type_id, command_id)
+	if _protocol_handler:
+		var action = {
+			"type": "Action",
+			"id": _lifecycle_action_id(command_id, action_type_id),
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"agent_id": _agent.agent_id,
+			"action_type_id": action_type_id,
+			"target_instance_id": context["target_instance_id"],
+			"parameters": {},
+			"intention_id": "",
+			"result": "failure",
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_failed", context["target_instance_id"], {
+		"action_type": action_type_id,
+		"command_id": command_id,
+		"reason": reason,
+		"description": "Agent %s action failed: %s" % [action_type_id, reason],
+	})
+
+func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
+	var context = _take_action_context(action_type_id, command_id)
+	if _protocol_handler:
+		var action = {
+			"type": "Action",
+			"id": _lifecycle_action_id(command_id, action_type_id),
+			"run_id": _event_recorder.get_run_status().run_id,
+			"timestamp_s": _sim_time.simulation_time,
+			"version": "1.0.0",
+			"agent_id": _agent.agent_id,
+			"action_type_id": action_type_id,
+			"target_instance_id": context["target_instance_id"],
+			"parameters": {},
+			"intention_id": "",
+			"result": "failure",
+			"correlation": _protocol_handler._make_correlation(),
+		}
+		_protocol_handler.send_action(action)
+	
+	_append_domain_event("agent_action_interrupted", context["target_instance_id"], {
+		"action_type": action_type_id,
+		"command_id": command_id,
+		"description": "Agent %s action interrupted" % [action_type_id],
+	})
+
+func _get_nearby_objects() -> Array:
+	var nearby = []
+	for obj in objects:
+		var meta = obj.get_metadata()
+		nearby.append({
+			"instance_id": meta["instance_id"],
+			"type_id": meta.get("type_id", "unknown"),
+			"position": {
+				"x": obj.position.x,
+				"y": obj.position.y,
+				"z": obj.position.z
+			}
+		})
+	return nearby
 
 func _build_room_boundaries() -> void:
 	_create_static_body("floor", Vector3(0, -half_size.y, 0), Vector3(half_size.x * 2, 0.2, half_size.z * 2))
@@ -271,10 +630,30 @@ func _on_object_body_entered(obj, other_body: Node) -> void:
 	elif other_body.name:
 		other_id = other_body.name
 	object_collided.emit(obj.instance_id, other_id)
+	_append_domain_event("object_collided", obj.instance_id, {"other_id": other_id, "description": "Collision"})
 
 func _on_object_landed(instance_id: String) -> void:
 	_landed_count += 1
 	object_landed.emit(instance_id)
+	_append_domain_event("object_landed", instance_id, {"description": "Object landed"})
+
+func _append_domain_event(event_type_id: String, target_id: String, metadata: Dictionary) -> void:
+	if _event_recorder == null:
+		return
+	var event = {
+		"id": "evt_%s_%04d" % [event_type_id, _event_recorder.get_run_status().event_count + 1],
+		"run_id": _event_recorder.get_run_status().run_id,
+		"timestamp_s": _cumulative_run_time + _sim_time.simulation_time,
+		"version": "1.0.0",
+		"event_type_id": event_type_id,
+		"target_instance_id": target_id,
+		"description": metadata.get("description", ""),
+		"severity": "info",
+		"metadata": metadata,
+	}
+	var success = _event_recorder.append_event(event)
+	if not success:
+		print("ERROR: Failed to append domain event: %s" % [event_type_id])
 
 func apply_impulse(instance_id: String, impulse: Vector3) -> void:
 	var obj = _find_object(instance_id)
@@ -312,7 +691,7 @@ func _animate_day_night(hour: float) -> void:
 	_light.rotation_degrees = Vector3(-90.0 + elevation * 45.0, azimuth * 30.0, 0.0)
 	# Energy: full at noon, dim at dawn/dusk, minimal at night
 	var energy: float = clamp(0.2 + 0.8 * max(0.0, sin(angle)), 0.1, 1.0)
-	_light.energy = energy
+	_light.light_energy = energy
 
 func _spawn_agent() -> void:
 	# Create and configure Agent
@@ -336,29 +715,15 @@ func _spawn_agent() -> void:
 	agent_mesh.mesh = capsule_mesh
 	_agent.add_child(agent_mesh)
 
-	# Create and configure MockController
-	_mock_controller = _controller_template.new()
-	_mock_controller.agent = _agent
-	_mock_controller.set_physics_process(true)
-	add_child(_mock_controller)
+	# Connect Agent action lifecycle signals to ProtocolHandler (to send results to agent service)
+	# and to EventRecorder (to persist action events to run record)
+	_agent.action_started.connect(_on_agent_action_started)
+	_agent.action_completed.connect(_on_agent_action_completed)
+	_agent.action_failed.connect(_on_agent_action_failed)
+	_agent.action_interrupted.connect(_on_agent_action_interrupted)
 
-	# Set up deterministic action targets: move toward each object, then touch it
-	var target_ids: Array[String] = [
-		"obj_wood_cube",
-		"obj_metal_sphere",
-		"obj_glass_box",
-		"obj_rubber_cylinder",
-	]
-	var target_list: Array[Dictionary] = []
-	# Lead with an intentional unreachable target to exercise reach-constraint failure immediately
-	target_list.append({"target_id": "obj_nonexistent", "action_type": "touch"})
-	# Follow with a wait action that completes immediately to demonstrate action_completed
-	target_list.append({"target_id": "", "action_type": "wait"})
-	for tid in target_ids:
-		target_list.append({"target_id": tid, "action_type": "move"})
-		# Mark the first touch action to trigger interruption demo
-		var is_first_touch: bool = (tid == "obj_wood_cube")
-		target_list.append({"target_id": tid, "action_type": "touch", "interrupt_after": is_first_touch})
-	_mock_controller.set_targets(target_list)
+	# The external agent service now drives the agent by sending Action messages.
+	# ProtocolHandler receives Action messages and Room forwards them to Agent.execute_action().
+	# MockController has been removed.
 
 	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])

@@ -58,7 +58,8 @@ func configure(defn: Dictionary) -> void:
 		shape.shape = box
 	elif shape_type == "sphere":
 		var sphere: SphereShape3D = SphereShape3D.new()
-		sphere.radius = sx
+		# dimensions_m stores the full dimensions, so x is the sphere diameter.
+		sphere.radius = sx / 2.0
 		shape.shape = sphere
 	elif shape_type == "cylinder":
 		var cyl: CylinderShape3D = CylinderShape3D.new()

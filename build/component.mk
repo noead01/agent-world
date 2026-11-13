@@ -28,5 +28,12 @@ else
 	@printf '%s: %s has no testable implementation yet\n' '$(COMPONENT_NAME)' '$@'
 endif
 
-test-integration test-acceptance:
+test-acceptance:
+ifdef COMPONENT_TEST_ACCEPTANCE
+	@$(COMPONENT_TEST_ACCEPTANCE)
+else
+	@printf '%s: %s has no testable implementation yet\n' '$(COMPONENT_NAME)' '$@'
+endif
+
+test-integration:
 	@printf '%s: %s has no testable implementation yet\n' '$(COMPONENT_NAME)' '$@'

@@ -29,6 +29,37 @@ class FakeWebSocket:
 
 
 class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_starts_reconnect_expiry_window(self):
+        service = AgentService(session_ttl_s=10)
+        websocket = object()
+        session_key = "agent_test:run_test"
+        client = {"websocket": websocket, "session_key": session_key}
+        service.clients["agent_test"] = client
+        service.agent_sessions[session_key] = object()
+
+        service._unregister_disconnected_client("agent_test", websocket, client)
+
+        self.assertNotIn("agent_test", service.clients)
+        self.assertIn(session_key, service._disconnected_sessions)
+
+    async def test_disconnected_sessions_expire_after_reconnect_window(self):
+        service = AgentService(session_ttl_s=10)
+        service.agent_sessions = {
+            "agent_old:run_old": object(),
+            "agent_recent:run_recent": object(),
+            "agent_active:run_active": object(),
+        }
+        service._disconnected_sessions = {
+            "agent_old:run_old": 89.0,
+            "agent_recent:run_recent": 95.0,
+        }
+
+        service._expire_disconnected_sessions(now=100.0)
+
+        self.assertNotIn("agent_old:run_old", service.agent_sessions)
+        self.assertIn("agent_recent:run_recent", service.agent_sessions)
+        self.assertIn("agent_active:run_active", service.agent_sessions)
+
     async def test_superseded_socket_cannot_route_into_replacement_client(self):
         correlation = {
             "experiment_id": "exp_test",

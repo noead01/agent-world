@@ -1,123 +1,82 @@
 #!/usr/bin/env python3
-"""Acceptance test for append-only run recording."""
-import tempfile
+"""Black-box acceptance tests for Room and EventRecorder persistence."""
 import os
-import json
+import shutil
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
-# Add contracts to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../packages/contracts/src"))
+WORLD_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(WORLD_DIR.parents[1] / "packages" / "contracts" / "src"))
 from agent_world_contracts.run_record import RunRecord
 
-def test_complete_run_recording():
-    """Run a short simulation and verify the recorded run is valid and readable."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        run_dir = os.path.join(tmpdir, "runs", "run_test_001")
-        os.makedirs(run_dir, exist_ok=True)
-        
-        # Create a realistic run record
-        run_meta = {
-            "id": "run_test_001",
-            "scenario_id": "first_benchmark_room",
-            "version": "1.0.0",
-            "agent_id": "wanderer_01",
-            "started_at": "2026-11-10T00:00:00Z",
-            "ended_at": "2026-11-10T00:00:10Z",
-            "simulation_time_s": 10.0,
-            "status": "completed",
-            "random_seed": 42,
-            "config_fingerprint": "a" * 64,
-        }
-        with open(os.path.join(run_dir, "run.json"), "w") as f:
-            json.dump(run_meta, f)
-        
-        events = [
-            {"id": "evt_001", "run_id": "run_test_001", "timestamp_s": 0.0, "version": "1.0.0", "event_type_id": "run_started", "target_instance_id": "", "description": "Simulation started", "severity": "info", "metadata": {}},
-            {"id": "evt_002", "run_id": "run_test_001", "timestamp_s": 1.5, "version": "1.0.0", "event_type_id": "object_landed", "target_instance_id": "obj_wood_cube", "description": "Wood cube landed on floor", "severity": "notice", "metadata": {"impact_velocity": 2.3}},
-            {"id": "evt_003", "run_id": "run_test_001", "timestamp_s": 2.1, "version": "1.0.0", "event_type_id": "object_collided", "target_instance_id": "obj_metal_sphere", "description": "Metal sphere collided with wood cube", "severity": "notice", "metadata": {"other_id": "obj_wood_cube"}},
-            {"id": "evt_004", "run_id": "run_test_001", "timestamp_s": 5.0, "version": "1.0.0", "event_type_id": "agent_action_started", "target_instance_id": "obj_glass_box", "description": "Agent started inspect action", "severity": "info", "metadata": {"action_type": "inspect"}},
-            {"id": "evt_005", "run_id": "run_test_001", "timestamp_s": 7.2, "version": "1.0.0", "event_type_id": "agent_action_completed", "target_instance_id": "obj_glass_box", "description": "Agent completed inspect action", "severity": "info", "metadata": {"action_type": "inspect", "result": "success"}},
-            {"id": "evt_006", "run_id": "run_test_001", "timestamp_s": 10.0, "version": "1.0.0", "event_type_id": "run_ended", "target_instance_id": "", "description": "Simulation ended", "severity": "info", "metadata": {}},
-        ]
-        with open(os.path.join(run_dir, "events.jsonl"), "w") as f:
-            for evt in events:
-                f.write(json.dumps(evt) + "\n")
-        
-        validity = [
-            {"run_id": "run_test_001", "validity": "valid", "previous_validity": None, "transition_reason": "Run started", "evaluated_at": "2026-11-10T00:00:00Z", "evaluator_component": "event_recorder", "evidence_summary": "Run started", "invalidating_event_ids": [], "version": "1.0.0"},
-            {"run_id": "run_test_001", "validity": "valid", "previous_validity": "valid", "transition_reason": "Run completed successfully", "evaluated_at": "2026-11-10T00:00:10Z", "evaluator_component": "event_recorder", "evidence_summary": "All required records intact", "invalidating_event_ids": [], "version": "1.0.0"},
-        ]
-        with open(os.path.join(run_dir, "validity.jsonl"), "w") as f:
-            for v in validity:
-                f.write(json.dumps(v) + "\n")
-        
-        # Load and validate
-        record = RunRecord.load(run_dir)
-        errors = record.validate()
-        
-        assert len(errors) == 0, f"Validation errors: {errors}"
-        assert record.config_fingerprint == "a" * 64
-        assert record.run_id == "run_test_001"
-        assert record.scenario_id == "first_benchmark_room"
-        assert record.get_event_count() == 6
-        assert record.is_valid()
-        assert record.get_final_validity() == "valid"
-        
-        # Test event filtering
-        landed_events = record.get_events("object_landed")
-        assert len(landed_events) == 1
-        assert landed_events[0]["target_instance_id"] == "obj_wood_cube"
-        
-        action_events = record.get_events("agent_action_started")
-        assert len(action_events) == 1
-        
-        print("PASS: Complete run recording test")
 
-def test_recorder_failure_marks_run_invalid():
-    """Test that recorder failure produces invalid run validity."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        run_dir = os.path.join(tmpdir, "runs", "run_failed_001")
-        os.makedirs(run_dir, exist_ok=True)
-        
-        run_meta = {
-            "id": "run_failed_001",
-            "scenario_id": "test",
-            "version": "1.0.0",
-            "agent_id": "agent_01",
-            "started_at": "2026-11-10T00:00:00Z",
-            "ended_at": "2026-11-10T00:00:05Z",
-            "simulation_time_s": 5.0,
-            "status": "aborted",
-            "random_seed": 42,
-        }
-        with open(os.path.join(run_dir, "run.json"), "w") as f:
-            json.dump(run_meta, f)
-        
-        events = [
-            {"id": "evt_001", "run_id": "run_failed_001", "timestamp_s": 0.0, "version": "1.0.0", "event_type_id": "run_started", "target_instance_id": "", "description": "", "severity": "info", "metadata": {}},
-            {"id": "evt_002", "run_id": "run_failed_001", "timestamp_s": 2.0, "version": "1.0.0", "event_type_id": "object_landed", "target_instance_id": "obj_1", "description": "", "severity": "info", "metadata": {}},
-        ]
-        with open(os.path.join(run_dir, "events.jsonl"), "w") as f:
-            for evt in events:
-                f.write(json.dumps(evt) + "\n")
-        
-        validity = [
-            {"run_id": "run_failed_001", "validity": "valid", "previous_validity": None, "transition_reason": "Run started", "evaluated_at": "2026-11-10T00:00:00Z", "evaluator_component": "event_recorder", "evidence_summary": "", "invalidating_event_ids": [], "version": "1.0.0"},
-            {"run_id": "run_failed_001", "validity": "invalid", "previous_validity": "valid", "transition_reason": "Recorder failure: disk full", "evaluated_at": "2026-11-10T00:00:05Z", "evaluator_component": "event_recorder", "evidence_summary": "Recorder failure", "invalidating_event_ids": [], "version": "1.0.0"},
-        ]
-        with open(os.path.join(run_dir, "validity.jsonl"), "w") as f:
-            for v in validity:
-                f.write(json.dumps(v) + "\n")
-        
-        record = RunRecord.load(run_dir)
+def _run_godot(data_home, *arguments, extra_environment=None, timeout=45):
+    godot = shutil.which("godot")
+    assert godot, "Godot 4 must be installed to run world acceptance tests"
+    environment = os.environ.copy()
+    environment["XDG_DATA_HOME"] = str(data_home)
+    environment.update(extra_environment or {})
+    return subprocess.run(
+        [godot, "--headless", "--path", str(WORLD_DIR), *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=environment,
+    )
+
+
+def _only_run_file(root):
+    run_files = list(Path(root).rglob("run.json"))
+    assert len(run_files) == 1, f"Expected one recorded run, found {run_files}"
+    return run_files[0]
+
+
+def test_room_persists_a_complete_run():
+    """Run the public world scene and validate its actual persisted records."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+
+        run_file = _only_run_file(data_home)
+        record = RunRecord.load(str(run_file.parent))
         errors = record.validate()
-        assert len(errors) == 0
-        assert not record.is_valid()
+
+        assert errors == [], f"Validation errors: {errors}"
+        assert record.status == "completed"
+        assert record.config_fingerprint
+        assert record.get_events("run_started")
+        assert record.get_events("run_ended")
+        assert record.is_valid()
+        assert all(
+            current["timestamp_s"] >= previous["timestamp_s"]
+            for previous, current in zip(record.events, record.events[1:])
+        )
+
+
+def test_recorder_failure_is_persisted_as_invalid_run():
+    """Drive EventRecorder through a real schema failure in Godot."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        runs_dir = Path(temp_dir) / "failure-runs"
+        _run_godot(
+            data_home,
+            "--script",
+            "res://tests/acceptance/recorder_failure_harness.gd",
+            extra_environment={"AGENT_WORLD_TEST_RUNS_DIR": str(runs_dir)},
+            timeout=15,
+        )
+
+        record = RunRecord.load(str(runs_dir / "run_failure_test"))
+        assert record.validate() == []
+        assert record.status == "aborted"
         assert record.get_final_validity() == "invalid"
-        
-        print("PASS: Recorder failure test")
+        assert not record.is_valid()
+
 
 if __name__ == "__main__":
-    test_complete_run_recording()
-    test_recorder_failure_marks_run_invalid()
-    print("All acceptance tests passed!")
+    test_room_persists_a_complete_run()
+    test_recorder_failure_is_persisted_as_invalid_run()
+    print("All run recording acceptance tests passed!")

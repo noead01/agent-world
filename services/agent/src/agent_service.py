@@ -3,6 +3,7 @@ import asyncio
 import uuid
 import json
 import os
+import time
 from typing import Dict, Optional
 import websockets
 from websockets.server import WebSocketServerProtocol
@@ -26,6 +27,7 @@ class AgentService:
         scenario_id: str = "first_benchmark_room",
         scenario_version: str = "1.0.0",
         run_id: str = "run_001",
+        session_ttl_s: float = 60.0,
     ):
         self.host = host
         self.port = port
@@ -33,12 +35,15 @@ class AgentService:
         self.scenario_id = scenario_id
         self.scenario_version = scenario_version
         self.run_id = run_id
+        self.session_ttl_s = max(float(session_ttl_s), 0.0)
         
         self.server: Optional[websockets.Server] = None
         self.clients: Dict[str, Dict] = {}  # agent_id -> {websocket, mock_agent, correlation}
         # Per-run agent state that survives transient socket disconnects so a
         # reconnect resumes the deterministic sequence instead of restarting it.
         self.agent_sessions: Dict[str, MockAgent] = {}  # "<agent_id>:<run_id>" -> MockAgent
+        self._disconnected_sessions: Dict[str, float] = {}
+        self._next_session_cleanup = 0.0
         self._running = False
         self._tick_task: Optional[asyncio.Task] = None
         
@@ -71,6 +76,9 @@ class AgentService:
         # Close all client connections
         for client_info in self.clients.values():
             await client_info["websocket"].close()
+        self.clients.clear()
+        self.agent_sessions.clear()
+        self._disconnected_sessions.clear()
         print("Agent service stopped")
         
     async def _handle_connection(self, websocket: WebSocketServerProtocol) -> None:
@@ -111,19 +119,42 @@ class AgentService:
         except Exception as e:
             print(f"Connection error: {e}")
         finally:
-            # Only remove the client registered by *this* connection. A
-            # replacement socket for the same agent may already have taken the
-            # dictionary entry while this handler is finalizing.
-            registered_client = self.clients.get(agent_id) if agent_id else None
-            if (
-                registered_client is not None
-                and registered_client.get("websocket") is websocket
-                and (client_info is None or registered_client is client_info)
-            ):
-                del self.clients[agent_id]
+            self._unregister_disconnected_client(agent_id, websocket, client_info)
+
+    def _unregister_disconnected_client(
+        self,
+        agent_id: Optional[str],
+        websocket: WebSocketServerProtocol,
+        client_info: Optional[Dict],
+    ) -> None:
+        if not agent_id:
+            return
+        registered_client = self.clients.get(agent_id)
+        if (
+            registered_client is None
+            or registered_client.get("websocket") is not websocket
+            or (client_info is not None and registered_client is not client_info)
+        ):
+            return
+        del self.clients[agent_id]
+        session_key = registered_client.get("session_key")
+        if session_key in self.agent_sessions:
+            self._disconnected_sessions[session_key] = time.monotonic()
+
+    def _expire_disconnected_sessions(self, now: Optional[float] = None) -> None:
+        current_time = time.monotonic() if now is None else now
+        expired_keys = [
+            key
+            for key, disconnected_at in self._disconnected_sessions.items()
+            if current_time - disconnected_at >= self.session_ttl_s
+        ]
+        for key in expired_keys:
+            self._disconnected_sessions.pop(key, None)
+            self.agent_sessions.pop(key, None)
                 
     async def _handle_hello(self, websocket: WebSocketServerProtocol, hello: Hello) -> Optional[Dict]:
         """Process Hello handshake."""
+        self._expire_disconnected_sessions()
         if hello.protocol_version != PROTOCOL_VERSION:
             err = make_error("PROTOCOL_MISMATCH", f"Expected {PROTOCOL_VERSION}, got {hello.protocol_version}")
             await websocket.send(serialize_message(err))
@@ -185,11 +216,14 @@ class AgentService:
                 targets.append({"target_id": tid, "action_type": "touch", "interrupt_after": is_first})
             mock_agent.set_targets(targets)
             self.agent_sessions[session_key] = mock_agent
+
+        self._disconnected_sessions.pop(session_key, None)
         
         client_info = {
             "websocket": websocket,
             "mock_agent": mock_agent,
-            "correlation": correlation
+            "correlation": correlation,
+            "session_key": session_key,
         }
         self.clients[agent_id] = client_info
         
@@ -230,6 +264,10 @@ class AgentService:
     async def _world_tick_loop(self) -> None:
         """Process world state and issue actions for all connected agents."""
         while self._running:
+            now = time.monotonic()
+            if now >= self._next_session_cleanup:
+                self._expire_disconnected_sessions(now)
+                self._next_session_cleanup = now + min(max(self.session_ttl_s, 0.1), 1.0)
             # Tick all connected mock agents to issue actions based on latest world state
             # Iterate over a snapshot to avoid RuntimeError if clients dict changes during iteration
             for agent_id, client_info in list(self.clients.items()):

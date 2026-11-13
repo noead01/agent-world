@@ -148,7 +148,12 @@ class MockAgent:
     
     async def on_error(self, error: Error) -> None:
         """Handle protocol error (e.g., STALE_REVISION)."""
-        if error.code != "STALE_REVISION" or not self.last_world_state:
+        if (
+            error.code != "STALE_REVISION"
+            or not self.last_world_state
+            or not self._active_request_id
+            or error.request_id != self._active_request_id
+        ):
             return
 
         # The rejected target was already advanced past when it was issued, so

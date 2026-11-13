@@ -50,6 +50,8 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 - 2026-11-10 — `done`: Implementation complete, all acceptance criteria verified.
 - 2026-11-12 — `in-progress`: Reopened to address PR #10 review findings.
 - 2026-11-12 — `done`: Review findings fixed and unit verification passed.
+- 2026-11-12 — `in-progress`: Reopened to address follow-up PR #10 review findings.
+- 2026-11-13 — `done`: Follow-up review findings fixed and unit and acceptance verification passed.
 
 ## Notes
 

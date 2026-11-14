@@ -68,14 +68,18 @@ func _process(_delta: float) -> void:
 		if packet:
 			var text = packet.get_string_from_utf8()
 			var parse_result = JSON.parse_string(text)
-			# In Godot 4, parse_string returns the parsed value on success, or Error code on failure
-			if parse_result is Dictionary or parse_result is Array:
-				var msg = parse_result
-				_handle_incoming(msg)
-				if _can_forward_message(msg):
-					message_received.emit(msg)
+			# In Godot 4, parse_string returns the parsed value or null on failure.
+			# Only objects are protocol messages; arrays and other JSON scalars
+			# would fail the Dictionary-typed handlers below.
+			if parse_result is Dictionary:
+				_handle_incoming(parse_result)
+				if _can_forward_message(parse_result):
+					message_received.emit(parse_result)
 			else:
-				print("WebSocketClient: JSON parse error: %s" % [parse_result])
+				error.emit(
+					"INVALID_MESSAGE",
+					"Rejected non-object JSON message: %s" % [text],
+				)
 	
 	# Connection state machine
 	match _state:

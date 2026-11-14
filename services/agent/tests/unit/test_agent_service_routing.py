@@ -225,6 +225,33 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         idle_agent.run_tick.assert_not_awaited()
 
+    async def test_clients_are_ticked_concurrently(self):
+        service = AgentService()
+        both_started = asyncio.Event()
+        started = []
+        completed = []
+
+        def make_agent():
+            agent = AsyncMock()
+            agent.last_world_state = object()
+
+            async def run_tick(_delta):
+                started.append(agent)
+                if len(started) == 2:
+                    both_started.set()
+                await asyncio.wait_for(both_started.wait(), timeout=1)
+                completed.append(agent)
+
+            agent.run_tick.side_effect = run_tick
+            return agent
+
+        service.clients["a"] = {"mock_agent": make_agent()}
+        service.clients["b"] = {"mock_agent": make_agent()}
+
+        await service._tick_clients()
+
+        self.assertEqual(len(completed), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

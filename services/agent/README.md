@@ -29,4 +29,4 @@ Environment variables:
 
 ## Protocol
 
-WebSocket JSON messages with `type` discriminator. Message schemas are defined in `src/schemas.py` and `src/protocol.py`. See [Agent Service Boundary Design](docs/superpowers/specs/2026-11-08-todo-0009-agent-service-boundary-design.md) for the protocol specification.
+WebSocket JSON messages with `type` discriminator. Message schemas are defined in `src/schemas.py` and `src/protocol.py`. See [Agent Service Boundary Design](../../docs/superpowers/specs/2026-11-08-todo-0009-agent-service-boundary-design.md) for the protocol specification.

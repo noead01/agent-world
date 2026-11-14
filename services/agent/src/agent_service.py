@@ -311,11 +311,23 @@ class AgentService:
             if now >= self._next_session_cleanup:
                 self._expire_disconnected_sessions(now)
                 self._next_session_cleanup = now + min(max(self.session_ttl_s, 0.1), 1.0)
-            # Tick all connected mock agents to issue actions based on latest world state
-            # Iterate over a snapshot to avoid RuntimeError if clients dict changes during iteration
-            for agent_id, client_info in list(self.clients.items()):
-                await self._tick_client(agent_id, client_info)
+            await self._tick_clients()
             await asyncio.sleep(1.0 / 60.0)  # Run at 60Hz to match physics
+
+    async def _tick_clients(self) -> None:
+        """Tick all connected sessions concurrently.
+
+        ``MockAgent.run_tick`` can sleep for a seeded delay while issuing an
+        action, so ticking sessions one after another would let one run's
+        delay stall every other run and skew their action timing.
+        """
+        # Iterate over a snapshot to avoid RuntimeError if clients dict changes.
+        await asyncio.gather(
+            *(
+                self._tick_client(agent_id, client_info)
+                for agent_id, client_info in list(self.clients.items())
+            )
+        )
 
     async def _tick_client(self, agent_id: str, client_info: Dict) -> None:
         """Tick one session without letting its failure stop the others.

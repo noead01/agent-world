@@ -52,7 +52,7 @@ def test_state_machine():
 def test_commands_are_forwarded_only_after_handshake():
     with open(SRC_FILE) as f:
         content = f.read()
-    assert "if _can_forward_message(msg):" in content
+    assert "if _can_forward_message(parse_result):" in content
     assert "func _can_forward_message(msg: Dictionary) -> bool:" in content
     assert "_state == ConnectionState.CONNECTED" in content
 
@@ -86,6 +86,14 @@ def test_hello_carries_the_recorded_random_seed():
     assert "_hello_random_seed = random_seed" in content
     assert 'hello["random_seed"] = _hello_random_seed' in content
     assert 'if _hello_random_seed >= 0:' in content
+
+
+def test_non_object_json_messages_are_rejected():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "if parse_result is Dictionary:" in content
+    assert "parse_result is Array" not in content
+    assert '"INVALID_MESSAGE"' in content
 
 
 if __name__ == "__main__":

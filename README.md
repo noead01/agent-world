@@ -47,6 +47,16 @@ Agent World is in its initial design and prototyping stage. The first milestone 
 
 The project is not yet available as a usable release.
 
+## Documentation
+
+- **Architecture Decision Records**: [`docs/adr/`](docs/adr/) — durable architectural constraints (ADR 0001–0007)
+- **Agent Control Layer Architecture**: [`docs/architecture/agent-control-layers.md`](docs/architecture/agent-control-layers.md) (Mermaid) / [`.puml`](docs/architecture/agent-control-layers.puml) (PlantUML) — 6-layer model, Primal Brain ↔ Conscience contract, implementation status
+- **Simulation Time Design**: [`docs/superpowers/specs/2026-11-01-todo-0007-simulation-time-design.md`](docs/superpowers/specs/2026-11-01-todo-0007-simulation-time-design.md)
+- **Embodied Agent Design**: [`docs/superpowers/specs/2026-11-01-todo-0008-embodied-agent-design.md`](docs/superpowers/specs/2026-11-01-todo-0008-embodied-agent-design.md)
+- **Agent Service Boundary**: [`docs/superpowers/specs/2026-11-08-todo-0009-agent-service-boundary-design.md`](docs/superpowers/specs/2026-11-08-todo-0009-agent-service-boundary-design.md)
+- **Observability**: [`docs/observability.md`](docs/observability.md) — correlation, validity schemas, run records
+- **Backlog**: [`docs/todo/`](docs/todo/) — prioritized work items (P0–P3)
+
 ## License
 
 No project license has been selected yet.

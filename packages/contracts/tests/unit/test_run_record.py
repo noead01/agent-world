@@ -271,6 +271,19 @@ def test_validate_accepts_matching_completed_duration():
     assert not any("simulation_time_s" in error for error in record.validate())
 
 
+def test_validate_reports_non_numeric_duration_without_raising():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+    )
+    record.simulation_time_s = "not-a-number"
+
+    errors = record.validate()
+
+    assert errors
+    assert not record.is_valid()
+
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

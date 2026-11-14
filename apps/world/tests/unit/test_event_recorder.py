@@ -67,6 +67,14 @@ def test_end_run_preserves_tracked_clock_by_default():
     assert "if simulation_time_s != null:" in content
     assert 'simulation_time_s"] = float(simulation_time_s)' in content
 
+
+def test_decreasing_timestamps_are_rejected_before_writing():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "_last_event_timestamp" in content
+    assert "float(timestamp) < float(_last_event_timestamp)" in content
+    assert "must be nondecreasing" in content
+
 if __name__ == "__main__":
     import sys
     tests = [

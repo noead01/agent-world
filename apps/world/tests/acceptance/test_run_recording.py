@@ -143,8 +143,30 @@ def test_recorder_failure_is_persisted_as_invalid_run():
         assert not record.is_valid()
 
 
+def test_recorder_rejects_decreasing_event_timestamps():
+    """A reordered event must invalidate the run before it is persisted."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        runs_dir = Path(temp_dir) / "ordering-runs"
+        _run_godot(
+            data_home,
+            "--script",
+            "res://tests/acceptance/recorder_ordering_harness.gd",
+            extra_environment={"AGENT_WORLD_TEST_RUNS_DIR": str(runs_dir)},
+            timeout=15,
+        )
+
+        record = RunRecord.load(str(runs_dir / "run_ordering_test"))
+        assert record.validate() == []
+        assert record.status == "aborted"
+        assert record.get_final_validity() == "invalid"
+        assert not record.is_valid()
+        assert [event["id"] for event in record.events] == ["evt_started"]
+
+
 if __name__ == "__main__":
     test_room_persists_a_complete_run()
     test_run_without_agent_session_is_aborted()
     test_recorder_failure_is_persisted_as_invalid_run()
+    test_recorder_rejects_decreasing_event_timestamps()
     print("All run recording acceptance tests passed!")

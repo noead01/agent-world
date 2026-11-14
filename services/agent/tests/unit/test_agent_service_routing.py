@@ -228,32 +228,47 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
 
         idle_agent.run_tick.assert_not_awaited()
 
-    async def test_clients_are_ticked_concurrently(self):
+    async def test_slow_session_does_not_delay_other_sessions(self):
         service = AgentService()
-        both_started = asyncio.Event()
-        started = []
-        completed = []
+        release_slow = asyncio.Event()
+        slow_started = asyncio.Event()
+        fast_completed = asyncio.Event()
+        slow_starts = 0
 
-        def make_agent():
-            agent = AsyncMock()
-            agent.last_world_state = object()
+        slow_agent = AsyncMock()
+        slow_agent.last_world_state = object()
 
-            async def run_tick(_delta):
-                started.append(agent)
-                if len(started) == 2:
-                    both_started.set()
-                await asyncio.wait_for(both_started.wait(), timeout=1)
-                completed.append(agent)
+        async def slow_tick(_delta):
+            nonlocal slow_starts
+            slow_starts += 1
+            slow_started.set()
+            await release_slow.wait()
 
-            agent.run_tick.side_effect = run_tick
-            return agent
+        slow_agent.run_tick.side_effect = slow_tick
 
-        service.clients["a"] = {"mock_agent": make_agent()}
-        service.clients["b"] = {"mock_agent": make_agent()}
+        fast_agent = AsyncMock()
+        fast_agent.last_world_state = object()
 
-        await service._tick_clients()
+        async def fast_tick(_delta):
+            fast_completed.set()
 
-        self.assertEqual(len(completed), 2)
+        fast_agent.run_tick.side_effect = fast_tick
+
+        service.clients["slow"] = {"mock_agent": slow_agent}
+        service.clients["fast"] = {"mock_agent": fast_agent}
+
+        service._schedule_client_ticks()
+        try:
+            await slow_started.wait()
+            await asyncio.wait_for(fast_completed.wait(), timeout=1)
+
+            # A session whose tick is still in flight is not ticked twice.
+            service._schedule_client_ticks()
+            await asyncio.sleep(0)
+            self.assertEqual(slow_starts, 1)
+        finally:
+            release_slow.set()
+            await asyncio.gather(*service._tick_tasks.values())
 
 
 if __name__ == "__main__":

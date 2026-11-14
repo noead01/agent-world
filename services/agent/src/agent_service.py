@@ -46,6 +46,9 @@ class AgentService:
         self._next_session_cleanup = 0.0
         self._running = False
         self._tick_task: Optional[asyncio.Task] = None
+        # Per-session tick tasks so one session's seeded action delay cannot
+        # hold back the tick loop for every other session.
+        self._tick_tasks: Dict[str, asyncio.Task] = {}
         
     async def start(self) -> None:
         """Start the WebSocket server."""
@@ -70,6 +73,11 @@ class AgentService:
                 await self._tick_task
             except asyncio.CancelledError:
                 pass
+        if self._tick_tasks:
+            for task in self._tick_tasks.values():
+                task.cancel()
+            await asyncio.gather(*self._tick_tasks.values(), return_exceptions=True)
+            self._tick_tasks.clear()
         if self.server:
             self.server.close()
             await self.server.wait_closed()
@@ -311,23 +319,28 @@ class AgentService:
             if now >= self._next_session_cleanup:
                 self._expire_disconnected_sessions(now)
                 self._next_session_cleanup = now + min(max(self.session_ttl_s, 0.1), 1.0)
-            await self._tick_clients()
+            self._schedule_client_ticks()
             await asyncio.sleep(1.0 / 60.0)  # Run at 60Hz to match physics
 
-    async def _tick_clients(self) -> None:
-        """Tick all connected sessions concurrently.
+    def _schedule_client_ticks(self) -> None:
+        """Give every session its own tick progress.
 
         ``MockAgent.run_tick`` can sleep for a seeded delay while issuing an
-        action, so ticking sessions one after another would let one run's
-        delay stall every other run and skew their action timing.
+        action. Awaiting all sessions together would make the slowest one a
+        barrier for everyone, so each session gets an independent task and is
+        skipped while its previous tick is still running.
         """
-        # Iterate over a snapshot to avoid RuntimeError if clients dict changes.
-        await asyncio.gather(
-            *(
+        for agent_id, client_info in list(self.clients.items()):
+            task = self._tick_tasks.get(agent_id)
+            if task is not None and not task.done():
+                continue
+            self._tick_tasks[agent_id] = asyncio.create_task(
                 self._tick_client(agent_id, client_info)
-                for agent_id, client_info in list(self.clients.items())
             )
-        )
+        for agent_id in list(self._tick_tasks):
+            task = self._tick_tasks[agent_id]
+            if agent_id not in self.clients and task.done():
+                del self._tick_tasks[agent_id]
 
     async def _tick_client(self, agent_id: str, client_info: Dict) -> None:
         """Tick one session without letting its failure stop the others.

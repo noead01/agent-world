@@ -202,6 +202,10 @@ class RunRecord:
         terminal_timestamp = terminal_events[-1].get("timestamp_s")
         if not isinstance(terminal_timestamp, (int, float)):
             return []
+        # Schema validation reports a malformed duration; converting it here
+        # first would raise instead of returning a diagnostic.
+        if not isinstance(self.simulation_time_s, (int, float)):
+            return []
         if abs(float(terminal_timestamp) - float(self.simulation_time_s)) > 1e-6:
             return [
                 "Completed run simulation_time_s "

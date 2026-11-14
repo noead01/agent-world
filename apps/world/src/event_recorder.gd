@@ -17,6 +17,7 @@ var _events_file = null
 var _run_metadata: Dictionary = {}
 var _validity: String = "valid"
 var _event_count: int = 0
+var _last_event_timestamp = null
 var _id_regex: RegEx
 var _version_regex: RegEx
 
@@ -120,6 +121,7 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 
 	_validity = "valid"
 	_event_count = 0
+	_last_event_timestamp = null
 	run_started.emit(run_id)
 	return true
 
@@ -144,6 +146,18 @@ func append_event(event: Dictionary) -> bool:
 	# elapsed simulated time rather than the 0.0 written by start_run(). The
 	# clock is monotonic so a reordered event cannot move the run backwards.
 	_update_simulation_clock(event_copy.get("timestamp_s"))
+
+	# The persisted stream must be ordered by time. Reject decreasing
+	# timestamps here so the run is invalidated immediately instead of only
+	# failing on readback validation.
+	var timestamp = event_copy.get("timestamp_s")
+	if (
+		_last_event_timestamp != null
+		and (timestamp is int or timestamp is float)
+		and float(timestamp) < float(_last_event_timestamp)
+	):
+		_fail_run("Event timestamp_s must be nondecreasing: %s after %s" % [timestamp, _last_event_timestamp])
+		return false
 	
 	# Validate event against schema if enabled
 	if validate_events:
@@ -160,6 +174,8 @@ func append_event(event: Dictionary) -> bool:
 		return false
 	
 	_event_count += 1
+	if timestamp is int or timestamp is float:
+		_last_event_timestamp = float(timestamp)
 	
 	event_appended.emit(event_copy)
 	return true

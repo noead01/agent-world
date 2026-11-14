@@ -54,7 +54,11 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 - 2026-11-13 — `done`: Follow-up review findings fixed and unit and acceptance verification passed.
 - 2026-11-14 — `in-progress`: Reopened to address new PR #10 review findings.
 - 2026-11-14 — `done`: Impulse recording, handshake validation, and configuration fingerprint fixes verified.
+- 2026-11-14 — `in-progress`: Reopened to address three further PR #10 review findings about simulation-driven agent timers and reconnect cancellation.
 
 ## Notes
 
 Record blockers, scope changes, implementation decisions, and review context here.
+
+- Review lesson: world revisions can advance while simulation is paused, so deterministic behavior timers must use simulation ticks and ignore repeated ticks. Keep cooldowns and seeded delays in ticks instead of converting service-loop deltas or assuming a wall-clock rate.
+- Review lesson: transport shutdown is terminal even when reconnect backoff is already waiting. Check the shutdown state again after every asynchronous wait, before accessing a peer or reconnecting.

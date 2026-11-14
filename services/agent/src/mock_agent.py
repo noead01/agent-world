@@ -13,10 +13,11 @@ from .protocol import serialize_message, PROTOCOL_VERSION
 class MockAgent:
     """Deterministic agent that produces intentions/actions on a fixed schedule."""
 
-    # Artificial latency is measured in world revisions (world-state updates)
-    # rather than wall time so a recorded seed replays identically at any
-    # simulation speed. 12 revisions is ~0.2s at 60Hz.
-    ACTION_DELAY_REVISIONS = 12
+    # Artificial latency is measured in simulation ticks rather than wall time
+    # so a recorded seed replays identically at any simulation speed. 12 ticks
+    # is ~0.2s at 60Hz, and the delay freezes while the world is paused.
+    ACTION_DELAY_TICKS = 12
+    ACTION_COOLDOWN_TICKS = 30
     
     def __init__(
         self, 
@@ -46,25 +47,29 @@ class MockAgent:
         self.targets: List[Dict[str, Any]] = []
         self.current_target_index = 0
         self.action_cooldown = 0.0
-        self.cooldown_timer = 0.0
+        self.cooldown_remaining_ticks = 0
         self.last_world_state: Optional[WorldState] = None
         self.pending_requests: Dict[str, Dict] = {}  # request_id -> {type, timestamp, target_index, payload}
         self._action_in_progress: bool = False  # Track if action is awaiting result
         self._active_request_id: Optional[str] = None  # Command whose terminal result is awaited
         self._resume_pending: bool = False
         self._awaiting_world_state: bool = False
-        # A seeded artificial delay that is waiting for world progress instead
-        # of blocking the tick loop on wall time.
+        # A seeded artificial delay that is waiting for simulation progress
+        # instead of blocking the tick loop on wall time.
         self._pending_delay: Optional[Dict[str, Any]] = None
+        # Baseline for converting successive WorldState updates into simulated
+        # progress. A pause leaves it unchanged; a reset moves it backwards.
+        self._last_simulation_tick: Optional[int] = None
         
     def set_targets(self, targets: List[Dict[str, Any]]) -> None:
         """Set the action target sequence."""
         self.targets = targets
         self.current_target_index = 0
-        self.cooldown_timer = 0.0
+        self.cooldown_remaining_ticks = 0
         self._action_in_progress = False
         self._active_request_id = None
         self._pending_delay = None
+        self._last_simulation_tick = None
         
     def _make_correlation(self, world_revision: int, simulation_tick: int, simulation_time: float) -> CorrelationContext:
         """Create correlation context for outgoing messages."""
@@ -130,6 +135,7 @@ class MockAgent:
         self.last_world_state = state
         # Update correlation base with latest world revision
         self.correlation_base = state.correlation
+        self._advance_simulation_progress(state.simulation_tick)
         if self._awaiting_world_state:
             self._awaiting_world_state = False
             if self._resume_pending:
@@ -154,7 +160,7 @@ class MockAgent:
         # result must not advance it again (that would skip the next target).
         self._action_in_progress = False
         # Issue next action after cooldown
-        self.cooldown_timer = 0.5  # 500ms cooldown
+        self.cooldown_remaining_ticks = self.ACTION_COOLDOWN_TICKS
 
     def _abandon_request(self, request_id: Optional[str]) -> None:
         """Stop awaiting a command the world rejected as invalid.
@@ -167,7 +173,7 @@ class MockAgent:
         self.pending_requests.pop(request_id, None)
         self._active_request_id = None
         self._action_in_progress = False
-        self.cooldown_timer = 0.5
+        self.cooldown_remaining_ticks = self.ACTION_COOLDOWN_TICKS
 
     async def on_error(self, error: Error) -> None:
         """Handle protocol error (e.g., STALE_REVISION)."""
@@ -201,20 +207,41 @@ class MockAgent:
             apply_delay=False,
         )
     
-    async def run_tick(self, delta: float) -> None:
-        """Main tick - called periodically to issue actions."""
+    def _advance_simulation_progress(self, simulation_tick: int) -> None:
+        """Advance every agent timer from simulated progress only.
+
+        The world keeps sending WorldState while paused, but simulation_tick is
+        frozen, so a paused world advances nothing. A reset moves the tick
+        backwards; treat that as a zero-progress boundary instead of rewinding
+        active timers.
+        """
+        previous_tick = self._last_simulation_tick
+        self._last_simulation_tick = simulation_tick
+        if previous_tick is None or simulation_tick <= previous_tick:
+            return
+
+        delta_ticks = simulation_tick - previous_tick
+        if self._pending_delay is not None:
+            self._pending_delay["remaining_ticks"] -= delta_ticks
+        if self.cooldown_remaining_ticks > 0:
+            self.cooldown_remaining_ticks = max(0, self.cooldown_remaining_ticks - delta_ticks)
+
+    async def run_tick(self) -> None:
+        """Main tick - called periodically to issue actions.
+
+        No wall-clock delta enters behavior: cooldowns and artificial delays
+        advance with the world's simulation tick, so a recorded seed replays
+        identically at any frame rate.
+        """
         if self._awaiting_world_state:
             return
 
-        # Serve an artificial delay once the world has advanced far enough.
+        # Serve an artificial delay once simulated time has advanced far enough.
         # The command keeps the revision/timestamp captured when it was
         # scheduled so it arrives stale, reproducing the seeded behavior.
         pending = self._pending_delay
         if pending is not None:
-            if (
-                not self.last_world_state
-                or self.last_world_state.world_revision < pending["ready_revision"]
-            ):
+            if pending["remaining_ticks"] > 0:
                 return
             self._pending_delay = None
             await self._issue_next_action(
@@ -227,8 +254,7 @@ class MockAgent:
             )
             return
 
-        if self.cooldown_timer > 0:
-            self.cooldown_timer -= delta
+        if self.cooldown_remaining_ticks > 0:
             return
 
         # While an action is in progress, only issue the next target when it is
@@ -274,11 +300,11 @@ class MockAgent:
 
         correlation = self._make_correlation(world_revision, simulation_tick, simulation_time)
 
-        # Artificial delay to simulate slow response (50% chance, ~12 world
-        # revisions). Scheduling in world revisions keeps replay deterministic
-        # regardless of wall-clock speed; the captured revision makes the
-        # request stale by the time it is sent. Retries skip it so they land in
-        # time.
+        # Artificial delay to simulate slow response (50% chance, 12 simulation
+        # ticks). Scheduling against simulated progress keeps replay
+        # deterministic regardless of wall-clock speed and freezes the delay
+        # while the world is paused; the captured revision makes the request
+        # stale by the time it is sent. Retries skip it so they land in time.
         if apply_delay and self._rng.random() < 0.5:
             self._pending_delay = {
                 "world_revision": world_revision,
@@ -286,7 +312,7 @@ class MockAgent:
                 "simulation_time": simulation_time,
                 "target_index": target_index,
                 "advance": advance,
-                "ready_revision": world_revision + self.ACTION_DELAY_REVISIONS,
+                "remaining_ticks": self.ACTION_DELAY_TICKS,
             }
             return
 
@@ -370,4 +396,4 @@ class MockAgent:
             self.current_target_index = max(self.current_target_index, target_index + 1)
         self._action_in_progress = True
         self._active_request_id = message_id
-        self.cooldown_timer = 0.5
+        self.cooldown_remaining_ticks = self.ACTION_COOLDOWN_TICKS

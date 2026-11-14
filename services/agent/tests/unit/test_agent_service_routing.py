@@ -217,7 +217,7 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         await service._tick_client("failing", {"mock_agent": failing_agent})
         await service._tick_client("healthy", {"mock_agent": healthy_agent})
 
-        healthy_agent.run_tick.assert_awaited_once_with(1.0 / 60.0)
+        healthy_agent.run_tick.assert_awaited_once()
 
     async def test_client_without_world_state_is_not_ticked(self):
         service = AgentService()
@@ -238,7 +238,7 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         slow_agent = AsyncMock()
         slow_agent.last_world_state = object()
 
-        async def slow_tick(_delta):
+        async def slow_tick():
             nonlocal slow_starts
             slow_starts += 1
             slow_started.set()
@@ -249,7 +249,7 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         fast_agent = AsyncMock()
         fast_agent.last_world_state = object()
 
-        async def fast_tick(_delta):
+        async def fast_tick():
             fast_completed.set()
 
         fast_agent.run_tick.side_effect = fast_tick

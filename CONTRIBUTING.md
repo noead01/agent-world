@@ -219,6 +219,8 @@ Use fixed physics steps. Simulation time must be independent of wall-clock time 
 
 Avoid coupling deterministic simulation progress to network latency. Record decision request and response times separately from simulated time.
 
+Agent behavior timers, including mock-agent response delays and action cooldowns, must advance from `WorldState.simulation_tick`, never from service-loop calls or world revisions. The world continues publishing state while paused, so repeated states with the same simulation tick must not advance those timers. Keep timers in ticks to avoid introducing a hidden wall-clock or tick-rate conversion. Intentional transport shutdown must also cancel delayed reconnect attempts before releasing the peer.
+
 ### World truth and agent belief
 
 Never expose hidden fact definitions directly to the agent. Maintain separate representations for:

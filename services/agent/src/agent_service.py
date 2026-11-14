@@ -325,10 +325,10 @@ class AgentService:
     def _schedule_client_ticks(self) -> None:
         """Give every session its own tick progress.
 
-        ``MockAgent.run_tick`` can sleep for a seeded delay while issuing an
-        action. Awaiting all sessions together would make the slowest one a
-        barrier for everyone, so each session gets an independent task and is
-        skipped while its previous tick is still running.
+        A session can be waiting on simulated world progress before issuing
+        its next command. Awaiting all sessions together would make the
+        slowest one a barrier for everyone, so each session gets an independent
+        task and is skipped while its previous tick is still running.
         """
         for agent_id, client_info in list(self.clients.items()):
             task = self._tick_tasks.get(agent_id)
@@ -345,16 +345,18 @@ class AgentService:
     async def _tick_client(self, agent_id: str, client_info: Dict) -> None:
         """Tick one session without letting its failure stop the others.
 
-        A socket can close while ``run_tick`` is sleeping for its artificial
-        delay or sending a command, which raises ``ConnectionClosed``. The
-        global loop must keep ticking every remaining (and future) session.
+        A socket can close while ``run_tick`` is sending a command, which
+        raises ``ConnectionClosed``. The global loop must keep ticking every
+        remaining (and future) session.
         """
         mock_agent = client_info["mock_agent"]
         if not mock_agent.last_world_state:
             return
         try:
-            # Use a small delta (1/60 = ~0.016s) to match physics tick rate
-            await mock_agent.run_tick(1.0 / 60.0)
+            # Behavior timing comes from WorldState simulation ticks, so the
+            # service loop only decides when to give each session a chance to
+            # act; it does not supply a wall-clock delta.
+            await mock_agent.run_tick()
         except Exception as exc:  # noqa: BLE001 - isolate a single client's failure
             print(f"AgentService: tick failed for {agent_id}: {exc}")
             

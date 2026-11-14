@@ -96,6 +96,16 @@ def test_non_object_json_messages_are_rejected():
     assert '"INVALID_MESSAGE"' in content
 
 
+def test_close_cancels_pending_reconnects():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "var _closed: bool = false" in content
+    assert "if _closed:\n\t\treturn" in content
+    assert "_closed = true" in content
+    # The null peer guard protects a reconnect racing with close().
+    assert "_closed or _peer == null" in content
+
+
 if __name__ == "__main__":
     import sys
     tests = [

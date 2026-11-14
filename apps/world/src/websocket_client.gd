@@ -24,6 +24,7 @@ var _hello_random_seed: int = -1
 
 var _peer: WebSocketPeer
 var _state: ConnectionState = ConnectionState.DISCONNECTED
+var _closed: bool = false
 var _reconnect_attempt: int = 0
 var _pending_messages: Array[Dictionary] = []
 var _request_id_counter: int = 0
@@ -227,6 +228,8 @@ func _on_disconnected(reason: String) -> void:
 	_schedule_reconnect()
 
 func _schedule_reconnect() -> void:
+	if _closed:
+		return
 	if _reconnect_attempt >= reconnect_max_attempts:
 		error.emit("MAX_RECONNECT_ATTEMPTS", "Max reconnection attempts reached")
 		return
@@ -237,11 +240,17 @@ func _schedule_reconnect() -> void:
 
 func _do_reconnect(delay: float) -> void:
 	await get_tree().create_timer(delay).timeout
+	# A close() during backoff is terminal: the peer and its state may already
+	# be released, so an outstanding timer must not resurrect the connection.
+	if _closed:
+		return
 	# Always attempt reconnection if still disconnected
 	if _state == ConnectionState.DISCONNECTED:
 		connect_to_server()
 
 func connect_to_server() -> void:
+	if _closed or _peer == null:
+		return
 	if _state != ConnectionState.DISCONNECTED and _state != ConnectionState.RECONNECTING:
 		return
 	_state = ConnectionState.CONNECTING
@@ -279,6 +288,9 @@ func _send(message: Dictionary) -> void:
 	print("MSG_JSON: %s" % [text])
 
 func close() -> void:
+	# Intentional shutdown is terminal; pending backoff timers must not try to
+	# reconnect a released peer.
+	_closed = true
 	if _peer:
 		_peer.close()
 	_peer = null

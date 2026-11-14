@@ -47,6 +47,7 @@ var _event_recorder_template = preload("res://src/event_recorder.gd")
 var _event_recorder
 var _active_action_context: Dictionary = {}
 var _agent_session_established: bool = false
+var _agent_session_connected: bool = false
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -160,6 +161,7 @@ func _ready() -> void:
 	# The external agent service is the only source of agent behavior, so a run
 	# that never completes the handshake cannot produce a valid experiment.
 	ws_client.connected.connect(_on_agent_session_connected)
+	ws_client.disconnected.connect(_on_agent_session_disconnected)
 
 	set_process(true)
 	set_physics_process(true)
@@ -358,6 +360,11 @@ func _physics_process(delta: float) -> void:
 				# No agent ever connected, so the run contains no agent behavior.
 				# Persist it as invalid instead of a misleading completed record.
 				_event_recorder.fail_run("Agent session was never established")
+			elif not _agent_session_connected:
+				# The session completed a handshake but is still lost at the end,
+				# so agent-driven behavior is missing for the remainder. A
+				# transient reconnect clears this via the connected signal.
+				_event_recorder.fail_run("Agent session was disconnected before run end")
 			else:
 				# Build final world state snapshot
 				var final_objects: Array = []
@@ -394,6 +401,12 @@ func _physics_process(delta: float) -> void:
 
 func _on_agent_session_connected(_server_id: String) -> void:
 	_agent_session_established = true
+	_agent_session_connected = true
+
+func _on_agent_session_disconnected(_reason: String) -> void:
+	# Reconnecting fires connected again, so only a session still lost at run
+	# end invalidates the record.
+	_agent_session_connected = false
 
 # ProtocolHandler signal handlers
 func _on_action_received(action: Dictionary) -> void:

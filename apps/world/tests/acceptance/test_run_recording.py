@@ -29,8 +29,9 @@ def _hello_ack(hello):
 class AgentServiceStub:
     """Minimal agent service: optionally complete the Hello handshake."""
 
-    def __init__(self, acknowledge=True):
+    def __init__(self, acknowledge=True, disconnect_after_ack=False):
         self._acknowledge = acknowledge
+        self._disconnect_after_ack = disconnect_after_ack
         self._server = None
         self._thread = None
 
@@ -45,12 +46,24 @@ class AgentServiceStub:
         return self
 
     def _handle(self, connection):
-        for raw in connection:
-            if not self._acknowledge:
-                continue
-            message = json.loads(raw)
-            if message.get("type") == "Hello":
-                connection.send(json.dumps(_hello_ack(message)))
+        # Godot closes abruptly when the run quits; that is expected here.
+        from websockets.exceptions import ConnectionClosed
+
+        try:
+            for raw in connection:
+                if not self._acknowledge:
+                    continue
+                message = json.loads(raw)
+                if message.get("type") == "Hello":
+                    connection.send(json.dumps(_hello_ack(message)))
+                    if self._disconnect_after_ack:
+                        # Accept the handshake once, then leave the world without
+                        # an agent for the rest of the run.
+                        self._acknowledge = False
+                        connection.close()
+                        return
+        except ConnectionClosed:
+            return
 
     def __exit__(self, *_):
         self._server.shutdown()
@@ -123,6 +136,24 @@ def test_run_without_agent_session_is_aborted():
         assert not record.get_events("run_ended")
 
 
+def test_run_lost_after_handshake_is_aborted():
+    """A session that disconnects after HelloAck must not yield a valid run."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        with AgentServiceStub(disconnect_after_ack=True):
+            _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+
+        run_file = _only_run_file(data_home)
+        record = RunRecord.load(str(run_file.parent))
+
+        assert record.validate() == []
+        assert record.status == "aborted"
+        assert record.get_final_validity() == "invalid"
+        assert not record.is_valid()
+        assert record.get_events("run_started")
+        assert not record.get_events("run_ended")
+
+
 def test_recorder_failure_is_persisted_as_invalid_run():
     """Drive EventRecorder through a real schema failure in Godot."""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -167,6 +198,7 @@ def test_recorder_rejects_decreasing_event_timestamps():
 if __name__ == "__main__":
     test_room_persists_a_complete_run()
     test_run_without_agent_session_is_aborted()
+    test_run_lost_after_handshake_is_aborted()
     test_recorder_failure_is_persisted_as_invalid_run()
     test_recorder_rejects_decreasing_event_timestamps()
     print("All run recording acceptance tests passed!")

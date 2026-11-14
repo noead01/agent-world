@@ -156,6 +156,17 @@ class RoomRequiresAgentSession(unittest.TestCase):
             'fail_run("Agent session was never established")', content
         )
 
+    def test_session_lost_at_run_end_invalidates_run(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("_agent_session_connected", content)
+        self.assertIn(
+            "ws_client.disconnected.connect(_on_agent_session_disconnected)", content
+        )
+        self.assertIn("func _on_agent_session_disconnected", content)
+        self.assertIn(
+            'fail_run("Agent session was disconnected before run end")', content
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

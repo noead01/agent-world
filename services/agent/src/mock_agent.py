@@ -1,6 +1,5 @@
 """Deterministic mock agent - replaces MockController logic."""
 import json
-import asyncio
 import random
 import time
 import uuid
@@ -13,6 +12,11 @@ from .protocol import serialize_message, PROTOCOL_VERSION
 
 class MockAgent:
     """Deterministic agent that produces intentions/actions on a fixed schedule."""
+
+    # Artificial latency is measured in world revisions (world-state updates)
+    # rather than wall time so a recorded seed replays identically at any
+    # simulation speed. 12 revisions is ~0.2s at 60Hz.
+    ACTION_DELAY_REVISIONS = 12
     
     def __init__(
         self, 
@@ -49,6 +53,9 @@ class MockAgent:
         self._active_request_id: Optional[str] = None  # Command whose terminal result is awaited
         self._resume_pending: bool = False
         self._awaiting_world_state: bool = False
+        # A seeded artificial delay that is waiting for world progress instead
+        # of blocking the tick loop on wall time.
+        self._pending_delay: Optional[Dict[str, Any]] = None
         
     def set_targets(self, targets: List[Dict[str, Any]]) -> None:
         """Set the action target sequence."""
@@ -57,6 +64,7 @@ class MockAgent:
         self.cooldown_timer = 0.0
         self._action_in_progress = False
         self._active_request_id = None
+        self._pending_delay = None
         
     def _make_correlation(self, world_revision: int, simulation_tick: int, simulation_time: float) -> CorrelationContext:
         """Create correlation context for outgoing messages."""
@@ -197,6 +205,28 @@ class MockAgent:
         """Main tick - called periodically to issue actions."""
         if self._awaiting_world_state:
             return
+
+        # Serve an artificial delay once the world has advanced far enough.
+        # The command keeps the revision/timestamp captured when it was
+        # scheduled so it arrives stale, reproducing the seeded behavior.
+        pending = self._pending_delay
+        if pending is not None:
+            if (
+                not self.last_world_state
+                or self.last_world_state.world_revision < pending["ready_revision"]
+            ):
+                return
+            self._pending_delay = None
+            await self._issue_next_action(
+                pending["world_revision"],
+                pending["simulation_tick"],
+                pending["simulation_time"],
+                target_index=pending["target_index"],
+                advance=pending["advance"],
+                apply_delay=False,
+            )
+            return
+
         if self.cooldown_timer > 0:
             self.cooldown_timer -= delta
             return
@@ -244,11 +274,21 @@ class MockAgent:
 
         correlation = self._make_correlation(world_revision, simulation_tick, simulation_time)
 
-        # Artificial delay to simulate slow response (50% chance, 200ms = ~12 ticks at 60Hz).
-        # This causes the request_world_revision to become stale by the time the
-        # response is processed. Retries skip it so they can land in time.
+        # Artificial delay to simulate slow response (50% chance, ~12 world
+        # revisions). Scheduling in world revisions keeps replay deterministic
+        # regardless of wall-clock speed; the captured revision makes the
+        # request stale by the time it is sent. Retries skip it so they land in
+        # time.
         if apply_delay and self._rng.random() < 0.5:
-            await asyncio.sleep(0.2)
+            self._pending_delay = {
+                "world_revision": world_revision,
+                "simulation_tick": simulation_tick,
+                "simulation_time": simulation_time,
+                "target_index": target_index,
+                "advance": advance,
+                "ready_revision": world_revision + self.ACTION_DELAY_REVISIONS,
+            }
+            return
 
         message_id = None
         if action_type in ["touch", "inspect"]:

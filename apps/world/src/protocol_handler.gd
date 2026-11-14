@@ -108,6 +108,16 @@ func _on_action_received(action: Dictionary) -> void:
 	var request_id: String = String(action.get("id", ""))
 	var validation_error := _validate_incoming_command(action)
 	if validation_error != "":
+		# Reply so the sender can clear or retry instead of waiting forever on
+		# a command the world will never execute.
+		if _websocket_client:
+			_websocket_client.send_message({
+				"type": "Error",
+				"code": "INVALID_COMMAND",
+				"message": validation_error,
+				"request_id": request_id,
+				"correlation": _make_correlation(),
+			})
 		invalid_command_rejected.emit(request_id, validation_error)
 		return
 

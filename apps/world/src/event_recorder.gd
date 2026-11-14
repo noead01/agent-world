@@ -164,15 +164,18 @@ func append_event(event: Dictionary) -> bool:
 	event_appended.emit(event_copy)
 	return true
 
-func end_run(simulation_time_s: float = 0.0) -> bool:
+func end_run(simulation_time_s = null) -> bool:
 	if _current_run_id == "":
 		push_error("EventRecorder: No active run")
 		return false
 	
-	# Update run metadata
+	# Update run metadata. A null argument means the caller relied on the
+	# default; keep the clock tracked while appending events instead of
+	# overwriting it with zero.
 	var now_str = _get_utc_timestamp()
 	_run_metadata["ended_at"] = now_str
-	_run_metadata["simulation_time_s"] = simulation_time_s
+	if simulation_time_s != null:
+		_run_metadata["simulation_time_s"] = float(simulation_time_s)
 	_run_metadata["status"] = "completed"
 	
 	var run_path = "%s/run.json" % [_current_run_path]
@@ -306,7 +309,7 @@ func _validate_event(event: Dictionary) -> bool:
 			push_error("EventRecorder: Unknown event field '%s'" % [field])
 			return false
 
-	var required_fields = ["id", "run_id", "timestamp_s", "version"]
+	var required_fields = ["id", "run_id", "timestamp_s", "version", "event_type_id"]
 	for field in required_fields:
 		if not event.has(field):
 			push_error("EventRecorder: Missing required field '%s' in event" % [field])
@@ -322,6 +325,11 @@ func _validate_event(event: Dictionary) -> bool:
 	# Validate id pattern using pre-compiled RegEx (String.match uses wildcard, not regex)
 	if not _id_regex.search(event["id"]):
 		push_error("EventRecorder: Invalid event id format: %s" % [event["id"]])
+		return false
+
+	# Consumers classify and replay events by type, so an empty type is unusable.
+	if event["event_type_id"] == "":
+		push_error("EventRecorder: event_type_id must not be empty")
 		return false
 
 	# Validate version pattern using pre-compiled RegEx

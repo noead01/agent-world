@@ -20,6 +20,7 @@ var _hello_agent_id: String = "wanderer_01"
 var _hello_experiment_id: String = "exp_autonomous_discovery_01"
 var _hello_scenario_id: String = "first_benchmark_room"
 var _hello_scenario_version: String = "1.0.0"
+var _hello_random_seed: int = -1
 
 var _peer: WebSocketPeer
 var _state: ConnectionState = ConnectionState.DISCONNECTED
@@ -44,9 +45,10 @@ func _create_peer() -> void:
 func get_trace_id() -> String:
 	return _trace_id
 
-func configure_hello(run_id: String, agent_id: String, experiment_id: String = "", scenario_id: String = "", scenario_version: String = "") -> void:
+func configure_hello(run_id: String, agent_id: String, experiment_id: String = "", scenario_id: String = "", scenario_version: String = "", random_seed: int = -1) -> void:
 	_hello_run_id = run_id
 	_hello_agent_id = agent_id
+	_hello_random_seed = random_seed
 	if experiment_id != "":
 		_hello_experiment_id = experiment_id
 	if scenario_id != "":
@@ -127,6 +129,11 @@ func _send_hello() -> void:
 		}
 	}
 	_hello_message = hello.duplicate(true)
+	if _hello_random_seed >= 0:
+		# Carry the recorded seed so the service reproduces the same
+		# stale-response/action schedule as the persisted run.
+		hello["random_seed"] = _hello_random_seed
+		_hello_message["random_seed"] = _hello_random_seed
 	_send(hello)
 	print("MSG_JSON: %s" % [JSON.stringify(hello)])
 

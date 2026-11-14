@@ -4,7 +4,7 @@
   "title": "Event",
   "description": "An event. Class-level properties describe the event type/category. Instance-level properties describe a concrete occurrence logged during a run.",
   "type": "object",
-  "required": ["id", "run_id", "timestamp_s", "version"],
+  "required": ["id", "run_id", "timestamp_s", "version", "event_type_id"],
   "properties": {
     "id": {
       "type": "string",
@@ -31,6 +31,7 @@
     },
     "event_type_id": {
       "type": "string",
+      "minLength": 1,
       "description": "[class-level] Identifier of the event category (e.g. 'object_broken', 'object_moved', 'discovery_stage_advanced', 'run_started')."
     },
     "target_instance_id": {

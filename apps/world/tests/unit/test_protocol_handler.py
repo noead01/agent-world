@@ -60,6 +60,14 @@ def test_incoming_command_revision_accepts_integral_json_float():
     assert "correlation_revision = _normalize_world_revision(correlation.get(\"world_revision\"))" in content
     assert "floor(value) != value" in content
 
+def test_invalid_commands_receive_a_correlated_error_reply():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert '"code": "INVALID_COMMAND"' in content
+    assert '"request_id": request_id' in content
+    assert "_websocket_client.send_message({" in content
+
+
 if __name__ == "__main__":
     import sys
     tests = [

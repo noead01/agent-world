@@ -95,6 +95,7 @@ class Hello(BaseModel):
     correlation: CorrelationContext
     reconnect: bool = False
     last_known_world_revision: Optional[int] = None
+    random_seed: Optional[int] = None
 
 
 class HelloAck(BaseModel):

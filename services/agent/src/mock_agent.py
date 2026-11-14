@@ -22,7 +22,8 @@ class MockAgent:
         scenario_id: str,
         scenario_version: str,
         send_callback: Callable[[str], Awaitable[None]],
-        correlation_base: CorrelationContext
+        correlation_base: CorrelationContext,
+        random_seed: Optional[int] = None,
     ):
         self.agent_id = agent_id
         self.run_id = run_id
@@ -32,9 +33,10 @@ class MockAgent:
         self.send = send_callback
         self.correlation_base = correlation_base
         
-        # Local RNG seeded from run_id for reproducible delays
+        # Seed from the run's recorded random_seed when provided so reruns can
+        # reproduce the delay schedule; fall back to run_id for older clients.
         self._rng = random.Random()
-        self._rng.seed(run_id)
+        self._rng.seed(random_seed if random_seed is not None else run_id)
         
         # Deterministic action sequence (same as room.gd MockController)
         self.targets: List[Dict[str, Any]] = []
@@ -145,9 +147,25 @@ class MockAgent:
         self._action_in_progress = False
         # Issue next action after cooldown
         self.cooldown_timer = 0.5  # 500ms cooldown
-    
+
+    def _abandon_request(self, request_id: Optional[str]) -> None:
+        """Stop awaiting a command the world rejected as invalid.
+
+        The world will never execute it, so keeping it active would stall the
+        deterministic sequence indefinitely. Only the active request is cleared.
+        """
+        if not request_id or request_id != self._active_request_id:
+            return
+        self.pending_requests.pop(request_id, None)
+        self._active_request_id = None
+        self._action_in_progress = False
+        self.cooldown_timer = 0.5
+
     async def on_error(self, error: Error) -> None:
         """Handle protocol error (e.g., STALE_REVISION)."""
+        if error.code == "INVALID_COMMAND":
+            self._abandon_request(error.request_id)
+            return
         if (
             error.code != "STALE_REVISION"
             or not self.last_world_state

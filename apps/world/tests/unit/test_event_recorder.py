@@ -52,6 +52,21 @@ def test_aborted_run_preserves_elapsed_simulation_time():
     assert "_update_simulation_clock(event_copy.get(\"timestamp_s\"))" in content
     assert "simulation_time_s" in content
 
+def test_event_type_id_is_required():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert '"event_type_id"' in content
+    assert 'event["event_type_id"] == ""' in content
+
+def test_end_run_preserves_tracked_clock_by_default():
+    # The null default must keep the clock advanced by _update_simulation_clock
+    # instead of overwriting it with zero.
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "func end_run(simulation_time_s = null) -> bool:" in content
+    assert "if simulation_time_s != null:" in content
+    assert 'simulation_time_s"] = float(simulation_time_s)' in content
+
 if __name__ == "__main__":
     import sys
     tests = [
@@ -63,6 +78,8 @@ if __name__ == "__main__":
         test_schema_validation,
         test_append_only_writing,
         test_aborted_run_preserves_elapsed_simulation_time,
+        test_event_type_id_is_required,
+        test_end_run_preserves_tracked_clock_by_default,
     ]
     failed = 0
     for test in tests:

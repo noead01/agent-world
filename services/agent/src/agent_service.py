@@ -218,7 +218,8 @@ class AgentService:
                 scenario_id=self.scenario_id,
                 scenario_version=self.scenario_version,
                 send_callback=lambda msg: websocket.send(msg),
-                correlation_base=correlation
+                correlation_base=correlation,
+                random_seed=hello.random_seed,
             )
             
             # Set deterministic target sequence (matching room.gd)

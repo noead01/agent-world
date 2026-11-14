@@ -79,6 +79,15 @@ def test_queued_world_states_are_coalesced():
     assert "_pending_messages.append(message)" in content
 
 
+def test_hello_carries_the_recorded_random_seed():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "random_seed: int = -1" in content
+    assert "_hello_random_seed = random_seed" in content
+    assert 'hello["random_seed"] = _hello_random_seed' in content
+    assert 'if _hello_random_seed >= 0:' in content
+
+
 if __name__ == "__main__":
     import sys
     tests = [

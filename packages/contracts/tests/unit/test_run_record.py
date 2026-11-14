@@ -195,6 +195,29 @@ def test_validate_rejects_decreasing_event_timestamps():
 
     assert any("timestamp_s" in error and "nondecreasing" in error for error in record.validate())
 
+def test_validate_requires_event_type_id():
+    untyped = _event("run_started", "evt_1")
+    untyped.pop("event_type_id")
+    record = _record(
+        events=[untyped],
+        validity_history=[_validity("valid", None)],
+        status="running",
+    )
+
+    assert any("event_type_id" in error for error in record.validate())
+
+
+def test_validate_rejects_empty_event_type_id():
+    untyped = _event("", "evt_1")
+    record = _record(
+        events=[untyped],
+        validity_history=[_validity("valid", None)],
+        status="running",
+    )
+
+    assert any("evt_1" in error for error in record.validate())
+
+
 def test_validate_rejects_duplicate_event_identifiers():
     record = _record(
         events=[

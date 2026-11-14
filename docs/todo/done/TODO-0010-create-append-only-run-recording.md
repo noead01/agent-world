@@ -1,6 +1,6 @@
 ---
 id: TODO-0010
-priority: P0
+priority: null
 status: done
 type: feature
 title: "Create append-only run recording"

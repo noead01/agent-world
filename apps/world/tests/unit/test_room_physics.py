@@ -143,5 +143,19 @@ class RoomHasEventRecorder(unittest.TestCase):
         assert "end_run" in content
 
 
+class RoomRequiresAgentSession(unittest.TestCase):
+    """A run without a completed agent handshake must not be valid."""
+
+    def test_unestablished_session_invalidates_run(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("_agent_session_established", content)
+        self.assertIn(
+            "ws_client.connected.connect(_on_agent_session_connected)", content
+        )
+        self.assertIn(
+            'fail_run("Agent session was never established")', content
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

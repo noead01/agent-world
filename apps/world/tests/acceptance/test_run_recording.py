@@ -1,15 +1,60 @@
 #!/usr/bin/env python3
 """Black-box acceptance tests for Room and EventRecorder persistence."""
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 WORLD_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(WORLD_DIR.parents[1] / "packages" / "contracts" / "src"))
 from agent_world_contracts.run_record import RunRecord
+
+
+def _hello_ack(hello):
+    correlation = dict(hello.get("correlation", {}))
+    return {
+        "type": "HelloAck",
+        "protocol_version": hello.get("protocol_version", "1.0.0"),
+        "server_id": "acceptance-stub",
+        "accepted_capabilities": hello.get("capabilities", []),
+        "initial_world_revision": correlation.get("world_revision", 0),
+        "correlation": correlation,
+    }
+
+
+class AgentServiceStub:
+    """Minimal agent service: optionally complete the Hello handshake."""
+
+    def __init__(self, acknowledge=True):
+        self._acknowledge = acknowledge
+        self._server = None
+        self._thread = None
+
+    def __enter__(self):
+        from websockets.sync.server import serve
+
+        self._server = serve(self._handle, "localhost", 8765)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True
+        )
+        self._thread.start()
+        return self
+
+    def _handle(self, connection):
+        for raw in connection:
+            if not self._acknowledge:
+                continue
+            message = json.loads(raw)
+            if message.get("type") == "Hello":
+                connection.send(json.dumps(_hello_ack(message)))
+
+    def __exit__(self, *_):
+        self._server.shutdown()
+        self._thread.join(timeout=5)
 
 
 def _run_godot(data_home, *arguments, extra_environment=None, timeout=45):
@@ -38,7 +83,8 @@ def test_room_persists_a_complete_run():
     """Run the public world scene and validate its actual persisted records."""
     with tempfile.TemporaryDirectory() as temp_dir:
         data_home = Path(temp_dir) / "godot-data"
-        _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+        with AgentServiceStub():
+            _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
 
         run_file = _only_run_file(data_home)
         record = RunRecord.load(str(run_file.parent))
@@ -49,6 +95,7 @@ def test_room_persists_a_complete_run():
         assert record.config_fingerprint
         assert record.get_events("run_started")
         assert record.get_events("run_ended")
+        assert record.simulation_time_s == record.events[-1]["timestamp_s"]
         impulse_events = record.get_events("object_impulse_applied")
         assert len(impulse_events) == 1
         assert impulse_events[0]["metadata"]["impulse"] == {"x": 2.0, "y": 0.0, "z": 0.0}
@@ -57,6 +104,23 @@ def test_room_persists_a_complete_run():
             current["timestamp_s"] >= previous["timestamp_s"]
             for previous, current in zip(record.events, record.events[1:])
         )
+
+
+def test_run_without_agent_session_is_aborted():
+    """An unavailable agent service must not produce a valid-looking run."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        with AgentServiceStub(acknowledge=False):
+            _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+
+        run_file = _only_run_file(data_home)
+        record = RunRecord.load(str(run_file.parent))
+
+        assert record.validate() == []
+        assert record.status == "aborted"
+        assert record.get_final_validity() == "invalid"
+        assert not record.is_valid()
+        assert not record.get_events("run_ended")
 
 
 def test_recorder_failure_is_persisted_as_invalid_run():
@@ -81,5 +145,6 @@ def test_recorder_failure_is_persisted_as_invalid_run():
 
 if __name__ == "__main__":
     test_room_persists_a_complete_run()
+    test_run_without_agent_session_is_aborted()
     test_recorder_failure_is_persisted_as_invalid_run()
     print("All run recording acceptance tests passed!")

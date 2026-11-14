@@ -46,6 +46,7 @@ var _protocol_handler_template = preload("res://src/protocol_handler.gd")
 var _event_recorder_template = preload("res://src/event_recorder.gd")
 var _event_recorder
 var _active_action_context: Dictionary = {}
+var _agent_session_established: bool = false
 
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
@@ -155,6 +156,10 @@ func _ready() -> void:
 	_protocol_handler.action_received.connect(_on_action_received)
 	_protocol_handler.action_result_received.connect(_on_action_result)
 	_protocol_handler.stale_request_rejected.connect(_on_stale_request)
+
+	# The external agent service is the only source of agent behavior, so a run
+	# that never completes the handshake cannot produce a valid experiment.
+	ws_client.connected.connect(_on_agent_session_connected)
 
 	set_process(true)
 	set_physics_process(true)
@@ -349,38 +354,46 @@ func _physics_process(delta: float) -> void:
 		
 		# Record final world state and run_ended event before ending run
 		if _event_recorder:
-			# Build final world state snapshot
-			var final_objects: Array = []
-			for obj in objects:
-				var meta: Dictionary = obj.get_metadata()
-				var p: Vector3 = obj.position
-				final_objects.append({
-					"instance_id": meta["instance_id"],
-					"type_id": meta.get("type_id", "unknown"),
-					"position": {"x": p.x, "y": p.y, "z": p.z},
-					"sleeping": obj.is_sleeping(),
+			if not _agent_session_established:
+				# No agent ever connected, so the run contains no agent behavior.
+				# Persist it as invalid instead of a misleading completed record.
+				_event_recorder.fail_run("Agent session was never established")
+			else:
+				# Build final world state snapshot
+				var final_objects: Array = []
+				for obj in objects:
+					var meta: Dictionary = obj.get_metadata()
+					var p: Vector3 = obj.position
+					final_objects.append({
+						"instance_id": meta["instance_id"],
+						"type_id": meta.get("type_id", "unknown"),
+						"position": {"x": p.x, "y": p.y, "z": p.z},
+						"sleeping": obj.is_sleeping(),
+					})
+				var final_agent_state: Dictionary = {}
+				if _agent != null:
+					var agent_dict: Dictionary = _agent.get_agent_dict()
+					final_agent_state = {
+						"id": agent_dict["id"],
+						"status": agent_dict["status"],
+						"position": agent_dict["position"],
+						"heading_radians": agent_dict["heading_radians"],
+					}
+
+				# Emit run_ended domain event
+				_append_domain_event("run_ended", "", {
+					"description": "Simulation ended",
+					"final_objects": final_objects,
+					"final_agent_state": final_agent_state,
 				})
-			var final_agent_state: Dictionary = {}
-			if _agent != null:
-				var agent_dict: Dictionary = _agent.get_agent_dict()
-				final_agent_state = {
-					"id": agent_dict["id"],
-					"status": agent_dict["status"],
-					"position": agent_dict["position"],
-					"heading_radians": agent_dict["heading_radians"],
-				}
-			
-			# Emit run_ended domain event
-			_append_domain_event("run_ended", "", {
-				"description": "Simulation ended",
-				"final_objects": final_objects,
-				"final_agent_state": final_agent_state,
-			})
-			
-			# End run with cumulative run time
-			var total_run_time = _cumulative_run_time + _sim_time.simulation_time
-			_event_recorder.end_run(total_run_time)
+
+				# End run with cumulative run time
+				var total_run_time = _cumulative_run_time + _sim_time.simulation_time
+				_event_recorder.end_run(total_run_time)
 		get_tree().quit()
+
+func _on_agent_session_connected(_server_id: String) -> void:
+	_agent_session_established = true
 
 # ProtocolHandler signal handlers
 func _on_action_received(action: Dictionary) -> void:

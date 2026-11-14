@@ -203,5 +203,28 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(service.clients["agent_test"], replacement_client)
 
 
+    async def test_failing_client_does_not_stop_other_ticks(self):
+        service = AgentService()
+        failing_agent = AsyncMock()
+        failing_agent.last_world_state = object()
+        failing_agent.run_tick.side_effect = ConnectionError("socket closed")
+        healthy_agent = AsyncMock()
+        healthy_agent.last_world_state = object()
+
+        await service._tick_client("failing", {"mock_agent": failing_agent})
+        await service._tick_client("healthy", {"mock_agent": healthy_agent})
+
+        healthy_agent.run_tick.assert_awaited_once_with(1.0 / 60.0)
+
+    async def test_client_without_world_state_is_not_ticked(self):
+        service = AgentService()
+        idle_agent = AsyncMock()
+        idle_agent.last_world_state = None
+
+        await service._tick_client("idle", {"mock_agent": idle_agent})
+
+        idle_agent.run_tick.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

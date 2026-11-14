@@ -314,11 +314,24 @@ class AgentService:
             # Tick all connected mock agents to issue actions based on latest world state
             # Iterate over a snapshot to avoid RuntimeError if clients dict changes during iteration
             for agent_id, client_info in list(self.clients.items()):
-                mock_agent = client_info["mock_agent"]
-                if mock_agent.last_world_state:
-                    # Use a small delta (1/60 = ~0.016s) to match physics tick rate
-                    await mock_agent.run_tick(1.0 / 60.0)
+                await self._tick_client(agent_id, client_info)
             await asyncio.sleep(1.0 / 60.0)  # Run at 60Hz to match physics
+
+    async def _tick_client(self, agent_id: str, client_info: Dict) -> None:
+        """Tick one session without letting its failure stop the others.
+
+        A socket can close while ``run_tick`` is sleeping for its artificial
+        delay or sending a command, which raises ``ConnectionClosed``. The
+        global loop must keep ticking every remaining (and future) session.
+        """
+        mock_agent = client_info["mock_agent"]
+        if not mock_agent.last_world_state:
+            return
+        try:
+            # Use a small delta (1/60 = ~0.016s) to match physics tick rate
+            await mock_agent.run_tick(1.0 / 60.0)
+        except Exception as exc:  # noqa: BLE001 - isolate a single client's failure
+            print(f"AgentService: tick failed for {agent_id}: {exc}")
             
     # Godot is authoritative for WorldState. Agent service receives WorldState
     # via _route_message and forwards to MockAgent. No simulation here.

@@ -7,20 +7,25 @@ import json
 from agent_world_contracts.run_record import RunRecord
 
 
-def _record(events, validity_history, status="completed"):
-    return RunRecord(
+def _record(events, validity_history, status="completed", simulation_time_s=60.0):
+    record = RunRecord(
         run_id="run_test",
         scenario_id="test_scenario",
         version="1.0.0",
         agent_id="agent_01",
         started_at="2026-11-10T00:00:00Z",
         ended_at="2026-11-10T00:01:00Z" if status == "completed" else None,
-        simulation_time_s=60.0,
+        simulation_time_s=simulation_time_s,
         status=status,
         random_seed=42,
         events=events,
         validity_history=validity_history,
     )
+    # Keep the terminal event consistent with the recorded duration so tests
+    # exercise the intended failure rather than an unrelated duration mismatch.
+    if status == "completed" and events and events[-1].get("event_type_id") == "run_ended":
+        events[-1]["timestamp_s"] = simulation_time_s
+    return record
 
 
 def _event(event_type_id, event_id):
@@ -240,6 +245,30 @@ def test_validate_accepts_unique_event_identifiers():
     )
 
     assert not any("duplicates event id" in error for error in record.validate())
+
+
+def test_validate_rejects_completed_duration_mismatch():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+    )
+    record.events[-1]["timestamp_s"] = 10.0
+    record.simulation_time_s = 60.0
+
+    errors = record.validate()
+
+    assert any("simulation_time_s" in error and "run_ended" in error for error in errors)
+    assert not record.is_valid()
+
+
+def test_validate_accepts_matching_completed_duration():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+        simulation_time_s=12.5,
+    )
+
+    assert not any("simulation_time_s" in error for error in record.validate())
 
 
 if __name__ == "__main__":

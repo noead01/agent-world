@@ -116,6 +116,7 @@ class RunRecord:
         errors.extend(self._validate_event_timestamps())
         errors.extend(self._validate_event_identifiers())
         errors.extend(self._validate_run_status_timestamps())
+        errors.extend(self._validate_completed_duration())
         
         # Validate run metadata
         try:
@@ -182,6 +183,31 @@ class RunRecord:
                 return [f"Terminal run status {self.status!r} requires a non-null ended_at"]
         elif self.ended_at is not None:
             return [f"Non-terminal run status {self.status!r} must leave ended_at null"]
+        return []
+
+    def _validate_completed_duration(self) -> List[str]:
+        """Require the completed run's duration to match its terminal event.
+
+        ``simulation_time_s`` is the authoritative duration, while
+        ``run_ended.timestamp_s`` is the authoritative endpoint. Accepting a
+        disagreement would let truncated or tampered metadata pass as valid.
+        """
+        if self.status != "completed":
+            return []
+        terminal_events = [
+            event for event in self.events if event.get("event_type_id") == "run_ended"
+        ]
+        if not terminal_events:
+            return []
+        terminal_timestamp = terminal_events[-1].get("timestamp_s")
+        if not isinstance(terminal_timestamp, (int, float)):
+            return []
+        if abs(float(terminal_timestamp) - float(self.simulation_time_s)) > 1e-6:
+            return [
+                "Completed run simulation_time_s "
+                f"{self.simulation_time_s} must match run_ended timestamp_s "
+                f"{terminal_timestamp}"
+            ]
         return []
 
     def _validate_event_timestamps(self) -> List[str]:

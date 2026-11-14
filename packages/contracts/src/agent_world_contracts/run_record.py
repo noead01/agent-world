@@ -114,6 +114,7 @@ class RunRecord:
 
         errors.extend(self._validate_event_boundaries())
         errors.extend(self._validate_event_timestamps())
+        errors.extend(self._validate_event_identifiers())
         errors.extend(self._validate_run_status_timestamps())
         
         # Validate run metadata
@@ -195,6 +196,25 @@ class RunRecord:
                     f"Event {index} timestamp_s must be nondecreasing"
                 )
             previous_timestamp = timestamp
+        return errors
+
+    def _validate_event_identifiers(self) -> List[str]:
+        """Reject reused event identifiers.
+
+        Event ``id`` is the authoritative stable key consumers index by. Two
+        events sharing an id would silently overwrite or double-count, so report
+        every repeat instead of trusting schema/boundary checks alone.
+        """
+        errors = []
+        seen = set()
+        for index, event in enumerate(self.events):
+            event_id = event.get("id")
+            if not isinstance(event_id, str):
+                continue
+            if event_id in seen:
+                errors.append(f"Event {index} duplicates event id {event_id!r}")
+            else:
+                seen.add(event_id)
         return errors
 
     def _validate_validity_history(self) -> List[str]:

@@ -240,9 +240,23 @@ func connect_to_server() -> void:
 
 func send_message(message: Dictionary) -> void:
 	if _state != ConnectionState.CONNECTED:
-		_pending_messages.append(message)
+		_queue_pending_message(message)
 		return
 	_send(message)
+
+func _queue_pending_message(message: Dictionary) -> void:
+	# The world keeps simulating while disconnected. Retain only the newest
+	# WorldState so an outage cannot accumulate an unbounded, obsolete snapshot
+	# history. Lifecycle messages (Action, Intention, Goodbye, ...) are not
+	# replaceable and stay queued in order.
+	if message.get("type", "") == "WorldState":
+		_drop_queued_world_states()
+	_pending_messages.append(message)
+
+func _drop_queued_world_states() -> void:
+	for index in range(_pending_messages.size() - 1, -1, -1):
+		if _pending_messages[index].get("type", "") == "WorldState":
+			_pending_messages.remove_at(index)
 
 func _send(message: Dictionary) -> void:
 	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:

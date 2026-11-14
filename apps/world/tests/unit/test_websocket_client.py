@@ -66,6 +66,19 @@ def test_hello_ack_is_validated_before_connecting():
     assert 'msg.get("accepted_capabilities", [])' in content
     assert '_on_disconnected("Invalid HelloAck' in content
 
+def test_queued_world_states_are_coalesced():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    # Only the newest WorldState may stay queued while disconnected; other
+    # lifecycle messages must keep being appended.
+    assert "func _queue_pending_message(message: Dictionary) -> void:" in content
+    assert "func _drop_queued_world_states() -> void:" in content
+    assert 'if message.get("type", "") == "WorldState":' in content
+    assert "_drop_queued_world_states()" in content
+    assert "_pending_messages.remove_at(index)" in content
+    assert "_pending_messages.append(message)" in content
+
+
 if __name__ == "__main__":
     import sys
     tests = [

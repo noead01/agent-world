@@ -195,6 +195,30 @@ def test_validate_rejects_decreasing_event_timestamps():
 
     assert any("timestamp_s" in error and "nondecreasing" in error for error in record.validate())
 
+def test_validate_rejects_duplicate_event_identifiers():
+    record = _record(
+        events=[
+            _event("run_started", "evt_1"),
+            _event("object_moved", "evt_2"),
+            _event("object_moved", "evt_2"),
+            _event("run_ended", "evt_3"),
+        ],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+    )
+
+    assert any("duplicates event id" in error for error in record.validate())
+    assert not record.is_valid()
+
+
+def test_validate_accepts_unique_event_identifiers():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+    )
+
+    assert not any("duplicates event id" in error for error in record.validate())
+
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

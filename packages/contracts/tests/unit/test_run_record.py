@@ -158,6 +158,27 @@ def test_validate_requires_invalidation_for_aborted_run():
     assert any("Terminal validity" in error for error in record.validate())
 
 
+def test_validate_requires_ended_at_for_terminal_run():
+    record = _record(
+        events=[_event("run_started", "evt_1"), _event("run_ended", "evt_2")],
+        validity_history=[_validity("valid", None), _validity("valid", "valid")],
+    )
+    record.ended_at = None
+
+    assert any("non-null ended_at" in error for error in record.validate())
+
+
+def test_validate_rejects_ended_at_for_active_run():
+    record = _record(
+        events=[_event("run_started", "evt_1")],
+        validity_history=[_validity("valid", None)],
+        status="running",
+    )
+    record.ended_at = "2026-11-10T00:01:00Z"
+
+    assert any("must leave ended_at null" in error for error in record.validate())
+
+
 def test_validate_rejects_decreasing_event_timestamps():
     first = _event("run_started", "evt_1")
     first["timestamp_s"] = 0.0

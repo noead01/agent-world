@@ -141,6 +141,25 @@ class AgentService:
         if session_key in self.agent_sessions:
             self._disconnected_sessions[session_key] = time.monotonic()
 
+    def _displace_previous_session(self, agent_id: str, new_session_key: str) -> None:
+        """Mark a replaced session disconnected so TTL cleanup can evict it.
+
+        When a new run for the same agent registers before the old socket
+        closes, the old socket's finalizer sees a different registered client
+        and returns early. Without this, the displaced MockAgent would stay in
+        ``agent_sessions`` forever.
+        """
+        previous_client = self.clients.get(agent_id)
+        if previous_client is None:
+            return
+        previous_session_key = previous_client.get("session_key")
+        if (
+            previous_session_key
+            and previous_session_key != new_session_key
+            and previous_session_key in self.agent_sessions
+        ):
+            self._disconnected_sessions[previous_session_key] = time.monotonic()
+
     def _expire_disconnected_sessions(self, now: Optional[float] = None) -> None:
         current_time = time.monotonic() if now is None else now
         expired_keys = [
@@ -225,6 +244,7 @@ class AgentService:
             "correlation": correlation,
             "session_key": session_key,
         }
+        self._displace_previous_session(agent_id, session_key)
         self.clients[agent_id] = client_info
         
         # Send HelloAck
@@ -241,8 +261,30 @@ class AgentService:
         await mock_agent.on_hello_ack(ack, resume=resuming)
         return client_info
         
+    @staticmethod
+    def _message_matches_session(client: Dict, msg) -> bool:
+        """Return True when msg belongs to the client's registered session.
+
+        World messages carry ``agent_id`` and a correlation ``run_id``. A
+        misconfigured or foreign world must not be able to mutate this
+        session's agent state (revisions, pending actions, target cursor).
+        """
+        correlation = client.get("correlation")
+        if correlation is None:
+            return True
+        msg_correlation = getattr(msg, "correlation", None)
+        if msg_correlation is not None and msg_correlation.run_id != correlation.run_id:
+            return False
+        msg_agent_id = getattr(msg, "agent_id", None)
+        if msg_agent_id is not None and msg_agent_id != correlation.agent_id:
+            return False
+        return True
+
     async def _route_message(self, client: Dict, msg) -> None:
         """Route incoming message to mock agent."""
+        if not self._message_matches_session(client, msg):
+            return
+
         mock_agent = client["mock_agent"]
         
         # Route to mock agent

@@ -41,6 +41,17 @@ func _get_utc_timestamp() -> String:
 	var dt = Time.get_datetime_dict_from_system(true)
 	return "%04d-%02d-%02dT%02d:%02d:%02dZ" % [dt["year"], dt["month"], dt["day"], dt["hour"], dt["minute"], dt["second"]]
 
+func _update_simulation_clock(timestamp_s) -> void:
+	# Track the latest simulated time appended to the run so terminal metadata
+	# (end_run and _fail_run) can persist the elapsed clock even when the caller
+	# does not supply one explicitly.
+	if not (timestamp_s is int or timestamp_s is float):
+		return
+	var candidate = float(timestamp_s)
+	var current = float(_run_metadata.get("simulation_time_s", 0.0))
+	if candidate > current:
+		_run_metadata["simulation_time_s"] = candidate
+
 func start_run(run_id: String, scenario_id: String, agent_id: String, random_seed: int, config_fingerprint: String = "") -> bool:
 	if _current_run_id != "":
 		push_error("EventRecorder: Run already in progress: %s" % [_current_run_id])
@@ -128,6 +139,11 @@ func append_event(event: Dictionary) -> bool:
 		event_copy["run_id"] = _current_run_id
 	if not event_copy.has("timestamp_s") and _run_metadata.has("simulation_time_s"):
 		event_copy["timestamp_s"] = _run_metadata["simulation_time_s"]
+
+	# Keep the run metadata clock current so an aborted record reports the
+	# elapsed simulated time rather than the 0.0 written by start_run(). The
+	# clock is monotonic so a reordered event cannot move the run backwards.
+	_update_simulation_clock(event_copy.get("timestamp_s"))
 	
 	# Validate event against schema if enabled
 	if validate_events:

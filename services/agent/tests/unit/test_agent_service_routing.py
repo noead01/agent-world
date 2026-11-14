@@ -5,6 +5,35 @@ import unittest
 from unittest.mock import AsyncMock
 
 from src.agent_service import AgentService
+from src.schemas import CorrelationContext, WorldState
+
+
+def _correlation(run_id="run_test", agent_id="agent_test"):
+    return CorrelationContext(
+        experiment_id="exp_test",
+        scenario_id="scenario_test",
+        scenario_version="1.0.0",
+        run_id=run_id,
+        agent_id=agent_id,
+        world_revision=1,
+        simulation_tick=1,
+        simulation_time=0.1,
+        component="world",
+        component_version="1.0.0",
+    )
+
+
+def _world_state(run_id="run_test", agent_id="agent_test"):
+    return WorldState(
+        world_revision=1,
+        simulation_tick=1,
+        simulation_time=0.1,
+        agent_id=agent_id,
+        agent_position={"x": 0.0, "y": 0.0, "z": 0.0},
+        agent_heading_radians=0.0,
+        nearby_objects=[],
+        correlation=_correlation(run_id, agent_id),
+    )
 
 
 class FakeWebSocket:
@@ -59,6 +88,61 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("agent_old:run_old", service.agent_sessions)
         self.assertIn("agent_recent:run_recent", service.agent_sessions)
         self.assertIn("agent_active:run_active", service.agent_sessions)
+
+    async def test_world_state_from_registered_session_is_routed(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        await service._route_message(client, _world_state())
+
+        mock_agent.on_world_state.assert_awaited_once()
+
+    async def test_world_state_from_foreign_session_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        await service._route_message(
+            client, _world_state(run_id="run_foreign", agent_id="agent_foreign")
+        )
+
+        mock_agent.on_world_state.assert_not_awaited()
+
+    async def test_world_state_with_mismatched_agent_id_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        await service._route_message(client, _world_state(agent_id="agent_foreign"))
+
+        mock_agent.on_world_state.assert_not_awaited()
+
+    async def test_replacement_run_marks_displaced_session_disconnected(self):
+        service = AgentService(session_ttl_s=10)
+        old_session_key = "agent_test:run_old"
+        service.agent_sessions[old_session_key] = object()
+        service.clients["agent_test"] = {
+            "websocket": object(),
+            "session_key": old_session_key,
+        }
+
+        service._displace_previous_session("agent_test", "agent_test:run_new")
+
+        self.assertIn(old_session_key, service._disconnected_sessions)
+
+    async def test_same_run_reconnect_is_not_marked_displaced(self):
+        service = AgentService(session_ttl_s=10)
+        session_key = "agent_test:run_test"
+        service.agent_sessions[session_key] = object()
+        service.clients["agent_test"] = {
+            "websocket": object(),
+            "session_key": session_key,
+        }
+
+        service._displace_previous_session("agent_test", session_key)
+
+        self.assertNotIn(session_key, service._disconnected_sessions)
 
     async def test_superseded_socket_cannot_route_into_replacement_client(self):
         correlation = {

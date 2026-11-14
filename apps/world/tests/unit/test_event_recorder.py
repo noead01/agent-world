@@ -43,6 +43,15 @@ def test_append_only_writing():
         content = f.read()
     assert "append" in content.lower() or "Append" in content
 
+def test_aborted_run_preserves_elapsed_simulation_time():
+    # _fail_run persists _run_metadata, so the clock must be advanced while
+    # events are appended; otherwise an aborted run reports simulation_time_s 0.
+    with open(SRC_FILE) as f:
+        content = f.read()
+    assert "func _update_simulation_clock" in content
+    assert "_update_simulation_clock(event_copy.get(\"timestamp_s\"))" in content
+    assert "simulation_time_s" in content
+
 if __name__ == "__main__":
     import sys
     tests = [
@@ -53,6 +62,7 @@ if __name__ == "__main__":
         test_methods,
         test_schema_validation,
         test_append_only_writing,
+        test_aborted_run_preserves_elapsed_simulation_time,
     ]
     failed = 0
     for test in tests:

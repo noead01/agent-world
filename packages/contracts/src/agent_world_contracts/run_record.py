@@ -114,6 +114,7 @@ class RunRecord:
 
         errors.extend(self._validate_event_boundaries())
         errors.extend(self._validate_event_timestamps())
+        errors.extend(self._validate_run_status_timestamps())
         
         # Validate run metadata
         try:
@@ -166,6 +167,21 @@ class RunRecord:
         elif has_run_ended:
             errors.append("Only completed runs may contain a run_ended event")
         return errors
+
+    def _validate_run_status_timestamps(self) -> List[str]:
+        """Require ended_at to match the run lifecycle.
+
+        Terminal runs need a wall-clock endpoint; an active run must not claim
+        one. The schema permits ``null`` independently of ``status``, so this is
+        enforced here rather than relying on schema validation alone.
+        """
+        terminal_statuses = {"completed", "aborted"}
+        if self.status in terminal_statuses:
+            if self.ended_at is None:
+                return [f"Terminal run status {self.status!r} requires a non-null ended_at"]
+        elif self.ended_at is not None:
+            return [f"Non-terminal run status {self.status!r} must leave ended_at null"]
+        return []
 
     def _validate_event_timestamps(self) -> List[str]:
         errors = []

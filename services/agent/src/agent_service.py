@@ -21,7 +21,7 @@ class AgentService:
     
     def __init__(
         self,
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 8765,
         experiment_id: str = "exp_autonomous_discovery_01",
         scenario_id: str = "first_benchmark_room",
@@ -351,7 +351,7 @@ class AgentService:
 
 async def main() -> None:
     """Entry point for running the agent service."""
-    host = os.getenv("AGENT_SERVICE_HOST", "0.0.0.0")
+    host = os.getenv("AGENT_SERVICE_HOST", "127.0.0.1")
     port = int(os.getenv("AGENT_SERVICE_PORT", "8765"))
     experiment_id = os.getenv("AGENT_EXPERIMENT_ID", "exp_autonomous_discovery_01")
     scenario_id = os.getenv("AGENT_SCENARIO_ID", "first_benchmark_room")

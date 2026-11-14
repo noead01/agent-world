@@ -58,6 +58,9 @@ class FakeWebSocket:
 
 
 class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_default_listener_binds_loopback_only(self):
+        self.assertEqual(AgentService().host, "127.0.0.1")
+
     async def test_disconnect_starts_reconnect_expiry_window(self):
         service = AgentService(session_ttl_s=10)
         websocket = object()

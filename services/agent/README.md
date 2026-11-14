@@ -20,7 +20,7 @@ python -m src.agent_service
 ## Configuration
 
 Environment variables:
-- `AGENT_SERVICE_HOST` (default: `0.0.0.0`)
+- `AGENT_SERVICE_HOST` (default: `127.0.0.1`; loopback-only unless explicitly exposed)
 - `AGENT_SERVICE_PORT` (default: `8765`)
 - `AGENT_EXPERIMENT_ID` (default: `exp_autonomous_discovery_01`)
 - `AGENT_SCENARIO_ID` (default: `first_benchmark_room`)

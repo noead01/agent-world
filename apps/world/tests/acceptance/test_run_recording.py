@@ -49,6 +49,9 @@ def test_room_persists_a_complete_run():
         assert record.config_fingerprint
         assert record.get_events("run_started")
         assert record.get_events("run_ended")
+        impulse_events = record.get_events("object_impulse_applied")
+        assert len(impulse_events) == 1
+        assert impulse_events[0]["metadata"]["impulse"] == {"x": 2.0, "y": 0.0, "z": 0.0}
         assert record.is_valid()
         assert all(
             current["timestamp_s"] >= previous["timestamp_s"]

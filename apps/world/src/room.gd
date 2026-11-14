@@ -29,6 +29,10 @@ var _demo_pause_time: float = 2.0
 var _demo_resume_time: float = 4.0
 var _demo_scale_time: float = 6.0
 var _demo_reset_time: float = 8.0
+var _demo_scale_factor: float = 2.0
+var _demo_impulse_time: float = 1.0
+var _demo_impulse_target_id: String = "obj_metal_sphere"
+var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
 var _demo_phase: String = "normal"
 var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
 var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
@@ -194,7 +198,22 @@ func _compute_config_fingerprint() -> String:
 			"collision_shape": {"type": "capsule", "radius_m": 0.3, "height_m": 1.0},
 		},
 		"objects": object_configs,
-		"simulation": {"day_cycle_duration_s": _sim_time.day_cycle_duration_s},
+		"simulation": {
+			"day_cycle_duration_s": _sim_time.day_cycle_duration_s,
+			"demo": {
+				"duration_s": _demo_duration,
+				"pause_time_s": _demo_pause_time,
+				"resume_time_s": _demo_resume_time,
+				"scale_time_s": _demo_scale_time,
+				"reset_time_s": _demo_reset_time,
+				"scale_factor": _demo_scale_factor,
+				"automatic_impulse": {
+					"time_s": _demo_impulse_time,
+					"target_instance_id": _demo_impulse_target_id,
+					"vector": _vector_to_dict(_demo_impulse_vector),
+				},
+			},
+		},
 	}
 	var canonical_json: String = JSON.stringify(_canonicalize_config(config))
 	var hashing_context := HashingContext.new()
@@ -217,6 +236,9 @@ func _canonicalize_config(value: Variant) -> Variant:
 			canonical.append(_canonicalize_config(item))
 		return canonical
 	return value
+
+func _vector_to_dict(vector: Vector3) -> Dictionary:
+	return {"x": vector.x, "y": vector.y, "z": vector.z}
 
 func _physics_process(delta: float) -> void:
 	# Advance simulation time through fixed physics steps
@@ -246,7 +268,7 @@ func _physics_process(delta: float) -> void:
 		_demo_phase = "normal"
 		print("  SIM RESUMED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
 	elif _demo_phase == "normal" and _demo_timer >= _demo_scale_time:
-		_sim_time.set_time_scale(2.0)
+		_sim_time.set_time_scale(_demo_scale_factor)
 		_demo_phase = "scaled"
 		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
 	elif _demo_phase == "scaled" and _demo_timer >= _demo_reset_time:
@@ -269,10 +291,10 @@ func _physics_process(delta: float) -> void:
 			obj.angular_velocity = Vector3(0, 0, 0)
 
 	# Apply an impulse to obj_metal_sphere at t=1s (before pause) to demonstrate impulse response
-	if not _impulse_applied and _demo_timer >= 1.0:
-		var target = _find_object("obj_metal_sphere")
+	if not _impulse_applied and _demo_timer >= _demo_impulse_time:
+		var target = _find_object(_demo_impulse_target_id)
 		if target:
-			target.apply_central_impulse(Vector3(2.0, 0.0, 0.0))
+			apply_impulse(target.instance_id, _demo_impulse_vector)
 			_impulse_applied = true
 			print("  IMPULSE applied to obj_metal_sphere at t=%.1fs" % [_demo_timer])
 
@@ -660,6 +682,10 @@ func apply_impulse(instance_id: String, impulse: Vector3) -> void:
 	if obj:
 		obj.apply_central_impulse(impulse)
 		object_impulse_applied.emit(instance_id, impulse)
+		_append_domain_event("object_impulse_applied", instance_id, {
+			"impulse": _vector_to_dict(impulse),
+			"description": "Applied impulse to %s" % [instance_id],
+		})
 
 func _find_object(instance_id: String):
 	for obj in objects:

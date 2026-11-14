@@ -28,6 +28,7 @@ var _pending_messages: Array[Dictionary] = []
 var _request_id_counter: int = 0
 var _trace_id: String = ""
 var _handshake_started_msec: int = 0
+var _hello_message: Dictionary = {}
 
 func _ready() -> void:
 	_create_peer()
@@ -125,6 +126,7 @@ func _send_hello() -> void:
 			"component_version": "1.0.0"
 		}
 	}
+	_hello_message = hello.duplicate(true)
 	_send(hello)
 	print("MSG_JSON: %s" % [JSON.stringify(hello)])
 
@@ -133,6 +135,11 @@ func _handle_incoming(msg: Dictionary) -> void:
 	match msg_type:
 		"HelloAck":
 			if _state != ConnectionState.HANDSHAKING:
+				return
+			var validation_error = _validate_hello_ack(msg)
+			if validation_error != "":
+				error.emit("PROTOCOL_MISMATCH", validation_error)
+				_on_disconnected("Invalid HelloAck: %s" % [validation_error])
 				return
 			_state = ConnectionState.CONNECTED
 			# Handshake accepted: now it is safe to clear the backoff counter.
@@ -150,9 +157,43 @@ func _handle_incoming(msg: Dictionary) -> void:
 			pass
 
 func _can_forward_message(msg: Dictionary) -> bool:
+	if msg.get("type", "") == "HelloAck":
+		return _state == ConnectionState.CONNECTED
 	if msg.get("type", "") in ["Action", "Intention"]:
 		return _state == ConnectionState.CONNECTED
 	return true
+
+func _validate_hello_ack(msg: Dictionary) -> String:
+	if msg.get("protocol_version", "") != _hello_message.get("protocol_version", ""):
+		return "HelloAck protocol version does not match Hello"
+	if not msg.get("server_id", "") is String or msg.get("server_id", "") == "":
+		return "HelloAck server_id is missing"
+
+	var accepted_capabilities = msg.get("accepted_capabilities", [])
+	if not accepted_capabilities is Array:
+		return "HelloAck accepted_capabilities must be an array"
+	for capability in _hello_message.get("capabilities", []):
+		if capability not in accepted_capabilities:
+			return "HelloAck is missing required capability: %s" % [capability]
+
+	var correlation = msg.get("correlation")
+	var expected_correlation = _hello_message.get("correlation", {})
+	if not correlation is Dictionary:
+		return "HelloAck correlation context is missing"
+	for field in ["experiment_id", "scenario_id", "scenario_version", "run_id", "agent_id"]:
+		if correlation.get(field) != expected_correlation.get(field):
+			return "HelloAck correlation %s does not match Hello" % [field]
+
+	var initial_revision = msg.get("initial_world_revision")
+	var correlation_revision = correlation.get("world_revision")
+	if not _is_nonnegative_integer(initial_revision) \
+			or not _is_nonnegative_integer(correlation_revision) \
+			or int(initial_revision) != int(correlation_revision):
+		return "HelloAck world revision is invalid or inconsistent"
+	return ""
+
+func _is_nonnegative_integer(value: Variant) -> bool:
+	return (value is int or value is float) and value >= 0 and floor(value) == value
 
 func _flush_pending_messages() -> void:
 	if _peer == null or _peer.get_ready_state() != WebSocketPeer.STATE_OPEN:

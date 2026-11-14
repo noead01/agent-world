@@ -56,6 +56,16 @@ def test_commands_are_forwarded_only_after_handshake():
     assert "func _can_forward_message(msg: Dictionary) -> bool:" in content
     assert "_state == ConnectionState.CONNECTED" in content
 
+def test_hello_ack_is_validated_before_connecting():
+    with open(SRC_FILE) as f:
+        content = f.read()
+    validation = content.index("var validation_error = _validate_hello_ack(msg)")
+    connected = content.index("_state = ConnectionState.CONNECTED")
+    assert validation < connected
+    assert 'msg.get("protocol_version", "")' in content
+    assert 'msg.get("accepted_capabilities", [])' in content
+    assert '_on_disconnected("Invalid HelloAck' in content
+
 if __name__ == "__main__":
     import sys
     tests = [

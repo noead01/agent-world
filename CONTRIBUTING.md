@@ -11,6 +11,8 @@ Keep the documentation types separate:
 - `docs/adr/` records durable architecture decisions and their consequences.
 - `docs/todo/` contains the prioritized engineering and research backlog.
 - `docs/observability.md` defines telemetry, experiment-recording, and behavioral-review conventions.
+- `docs/architecture/` contains versionable architecture diagrams (Mermaid, PlantUML) mapping ADR decisions to components and backlog.
+- `docs/superpowers/specs/` contains detailed implementation designs for individual backlog items.
 
 Update documentation in the same change that makes it inaccurate. Do not use TODO comments or ADRs as substitutes for an issue description when a task needs implementation detail.
 

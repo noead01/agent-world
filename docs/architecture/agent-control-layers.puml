@@ -1,0 +1,102 @@
+@startuml
+!define RECTANGLE class
+
+' ==================== STYLES ====================
+skinparam backgroundColor #FFFFFF
+skinparam componentStyle rectangle
+skinparam rectangle {
+    BackgroundColor<<world>> #E8F5E9
+    BorderColor<<world>> #2E7D32
+    BackgroundColor<<transport>> #E3F2FD
+    BorderColor<<transport>> #1565C0
+    BackgroundColor<<primal>> #FFF3E0
+    BorderColor<<primal>> #EF6C00
+    BackgroundColor<<conscience>> #FCE4EC
+    BorderColor<<conscience>> #C2185B
+    BackgroundColor<<contract>> #F3E5F5
+    BorderColor<<contract>> #7B1FA2
+    BorderStyle<<contract>> dashed
+}
+
+' ==================== COMPONENTS ====================
+
+package "World (Godot)" <<world>> {
+    [WorldState\nSimulation Tick] as WS
+    [Observation\nEntity Events] as OBS
+    [ActionResult\nTerminal Results] as AR
+}
+
+package "Agent Service Boundary\n(WebSocket Transport)" <<transport>> {
+    [WorldState Message] as WS_MSG
+    [Observation Message] as OBS_MSG
+    [Intention/Action Message] as ACT_MSG
+    [Error Message\nStale/Retry] as ERR_MSG
+}
+
+package "Primal Brain\n(Deterministic, Realtime, <1ms)" <<primal>> {
+    [Body & Reflexes\nCharacterBody3D, Locomotion] as BODY
+    [Drives\nCuriosity, Uncertainty, Integrity] as DRIVES
+    [Deterministic Attention\nNovelty, Proximity, Relevance] as ATTN
+    [Action Arbitration\nPriority, Interruption, Integrity] as ARBITER
+}
+
+package "Conscience\n(LLM, Async, 100-2000ms)" <<conscience>> {
+    [LLM Provider Adapter\nStructured Output, Validation] as LLM_ADAPTER
+    [Deliberation Engine\nGoals, Hypotheses, Plans] as PLANNER
+    [Memory & Beliefs\nEpisodic, Semantic, Procedural] as MEMORY
+}
+
+package "Primal Brain ↔ Conscience Contract" <<contract>> {
+    [Command\nHigh-level intention] as CMD
+    [BrainState\nDrives, Attention, Context] as BRAIN_STATE
+}
+
+' ==================== CONNECTIONS ====================
+
+' World -> Transport
+WS --> WS_MSG : periodic (60Hz)
+OBS --> OBS_MSG : events
+AR <-- ACT_MSG : forwards
+
+' Transport -> Primal Brain
+WS_MSG ..> BODY : on_world_state()
+OBS_MSG ..> ATTN : observation events
+OBS_MSG ..> DRIVES : observation events
+
+' Primal Brain internal
+BODY --> ATTN : brain state (kinematics)
+BODY --> ARBITER : integrity events
+DRIVES --> ATTN : pressure signals
+DRIVES --> ARBITER : threshold crossings
+ATTN --> ARBITER : bounded context (top-k)
+ARBITER --> BODY : selected intention
+ARBITER --> ACT_MSG : Intention/Action
+
+' Primal Brain -> Transport
+ACT_MSG --> WS_MSG : sends intention/action
+
+' Primal Brain <-> Conscience Contract
+BODY --> BRAIN_STATE : emits (10Hz)
+BRAIN_STATE ..> LLM_ADAPTER : async, fire-and-forget
+CMD ..> ARBITER : validated command
+ARBITER --> CMD : accept/reject/interrupt
+
+' Conscience internal
+PLANNER --> MEMORY : queries
+PLANNER <-- MEMORY : stores
+LLM_ADAPTER --> PLANNER : calls LLM
+
+' Transport errors
+ERR_MSG -[#FF0000,dashed]-> ACT_MSG : stale/retry
+
+' ==================== LEGEND ====================
+legend right
+    |= Color |= Layer |= Timing |
+    | <#E8F5E9> Green | World | 60Hz (physics) |
+    | <#E3F2FD> Blue | Transport | Async WebSocket |
+    | <#FFF3E0> Orange | Primal Brain | <1ms (deterministic) |
+    | <#FCE4EC> Pink | Conscience | 100-2000ms (LLM) |
+    | <#F3E5F5> Purple | Contract | Async, bounded |
+endlegend
+
+@enduml

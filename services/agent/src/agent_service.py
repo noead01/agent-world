@@ -6,7 +6,7 @@ import os
 import time
 from typing import Dict, Optional
 import websockets
-from websockets.server import WebSocketServerProtocol
+from websockets.asyncio.server import ServerConnection as WebSocketServerProtocol
 from .schemas import (
     Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Observation, Error
 )

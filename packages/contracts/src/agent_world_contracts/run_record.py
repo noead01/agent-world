@@ -53,6 +53,7 @@ class RunRecord:
     validity_history: List[Dict[str, Any]] = field(default_factory=list)
     run_dir: str = ""
     _raw_run_metadata: Optional[Dict[str, Any]] = field(default=None, repr=False)
+    _load_errors: List[str] = field(default_factory=list, repr=False)
     
     @classmethod
     def load(cls, run_dir: str) -> "RunRecord":
@@ -87,25 +88,40 @@ class RunRecord:
                 if line:
                     validity_history.append(json.loads(line))
         
+        # ``run.schema.json`` marks instance-level metadata optional so a run
+        # template can validate without a concrete execution. This loader still
+        # needs those fields, so report their absence as validation diagnostics
+        # instead of raising ``KeyError`` on a schema-valid record.
+        load_errors: List[str] = []
+
+        def instance_field(name: str, default: Any) -> Any:
+            if name not in run_meta:
+                load_errors.append(
+                    f"Run metadata is missing required instance field {name!r}"
+                )
+                return default
+            return run_meta[name]
+
         return cls(
             run_id=run_meta["id"],
             scenario_id=run_meta["scenario_id"],
             version=run_meta["version"],
-            agent_id=run_meta["agent_id"],
-            started_at=run_meta["started_at"],
+            agent_id=instance_field("agent_id", ""),
+            started_at=instance_field("started_at", ""),
             ended_at=run_meta.get("ended_at"),
-            simulation_time_s=run_meta["simulation_time_s"],
-            status=run_meta["status"],
-            random_seed=run_meta["random_seed"],
+            simulation_time_s=instance_field("simulation_time_s", 0.0),
+            status=instance_field("status", ""),
+            random_seed=instance_field("random_seed", 0),
             config_fingerprint=run_meta.get("config_fingerprint", ""),
             events=events,
             validity_history=validity_history,
             run_dir=str(run_path),
             _raw_run_metadata=run_meta,
+            _load_errors=load_errors,
         )
     
     def validate(self) -> List[str]:
-        errors = []
+        errors = list(self._load_errors)
 
         if not self.events:
             errors.append("Event stream is empty; run_started event is missing")

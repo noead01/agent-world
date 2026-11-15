@@ -284,6 +284,36 @@ def test_validate_reports_non_numeric_duration_without_raising():
     assert not record.is_valid()
 
 
+def test_load_diagnoses_missing_optional_instance_fields():
+    """The schema marks instance fields optional; the loader must not raise.
+
+    A schema-valid run.json that omits instance metadata must still load so the
+    operator sees validation diagnostics instead of an uncaught KeyError.
+    """
+    with tempfile.TemporaryDirectory() as run_dir:
+        with open(os.path.join(run_dir, "run.json"), "w") as f:
+            json.dump(
+                {"id": "run_min", "scenario_id": "test_scenario", "version": "1.0.0"},
+                f,
+            )
+        open(os.path.join(run_dir, "events.jsonl"), "w").close()
+        open(os.path.join(run_dir, "validity.jsonl"), "w").close()
+
+        record = RunRecord.load(run_dir)
+        errors = record.validate()
+
+    for field in (
+        "agent_id",
+        "started_at",
+        "simulation_time_s",
+        "status",
+        "random_seed",
+    ):
+        assert any(field in error for error in errors), (
+            f"missing diagnostic for absent instance field {field}: {errors}"
+        )
+
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

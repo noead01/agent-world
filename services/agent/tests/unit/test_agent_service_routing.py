@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import AsyncMock
 
 from src.agent_service import AgentService
-from src.schemas import CorrelationContext, WorldState
+from src.schemas import Action, CorrelationContext, WorldState
 
 
 def _correlation(run_id="run_test", agent_id="agent_test"):
@@ -33,6 +33,21 @@ def _world_state(run_id="run_test", agent_id="agent_test"):
         agent_heading_radians=0.0,
         nearby_objects=[],
         correlation=_correlation(run_id, agent_id),
+    )
+
+
+def _action(run_id="run_test", agent_id="agent_test", correlation_run_id="run_test"):
+    return Action(
+        id="act_test",
+        run_id=run_id,
+        agent_id=agent_id,
+        timestamp_s=0.1,
+        version="1.0.0",
+        action_type_id="touch",
+        target_instance_id="obj_1",
+        result="success",
+        correlation=_correlation(correlation_run_id, agent_id),
+        request_world_revision=1,
     )
 
 
@@ -120,6 +135,28 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         await service._route_message(client, _world_state(agent_id="agent_foreign"))
 
         mock_agent.on_world_state.assert_not_awaited()
+
+    async def test_action_with_foreign_top_level_run_id_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        # Correlation says run_test, but the top-level run_id names another run.
+        # Results attributed to a foreign run must not mutate this session.
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        await service._route_message(
+            client, _action(run_id="run_foreign", correlation_run_id="run_test")
+        )
+
+        mock_agent.on_action_result.assert_not_awaited()
+
+    async def test_action_from_registered_session_is_routed(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        await service._route_message(client, _action())
+
+        mock_agent.on_action_result.assert_awaited_once()
 
     async def test_replacement_run_marks_displaced_session_disconnected(self):
         service = AgentService(session_ttl_s=10)

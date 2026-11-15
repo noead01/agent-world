@@ -10,7 +10,7 @@ dependencies:
 branch: feature/todo-0010-append-only-run-recording
 pull_request: "10"
 created: 2026-10-29
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Create append-only run recording
@@ -56,6 +56,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 - 2026-11-14 — `done`: Impulse recording, handshake validation, and configuration fingerprint fixes verified.
 - 2026-11-14 — `in-progress`: Reopened to address three further PR #10 review findings about simulation-driven agent timers and reconnect cancellation.
 - 2026-11-14 — `in-progress`: Reopened for seven further PR #10 review findings; resynchronized the file location, status metadata, and backlog index link.
+- 2026-11-15 — `in-progress`: All seven findings implemented with regression tests; unit, acceptance, and repository validation pass.
 
 ## Notes
 
@@ -70,3 +71,4 @@ Record blockers, scope changes, implementation decisions, and review context her
 - Review lesson: dependency lower bounds must match the API actually imported. This service imports `websockets.asyncio.server`, which requires websockets 13 or newer, so `>=12.0` is not a supported floor.
 - Review lesson: a recorder must enforce the same invariants as readback validation before writing. Reject duplicate event IDs at append and invalidate the run rather than persisting a stream that `RunRecord` will reject.
 - Review lesson: a configuration fingerprint must include every behavior-affecting input across processes, including the agent service's target order, action cooldown, and seeded-delay policy; world-side settings alone cannot distinguish runs that differ in agent behavior.
+- Review lesson: a scheduled control transition must be gated on one-shot state, not only elapsed time. Returning to the same phase after a transition re-fires the first matching branch forever, so the later transitions never execute.

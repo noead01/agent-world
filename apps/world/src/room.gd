@@ -33,9 +33,19 @@ var _demo_scale_factor: float = 2.0
 var _demo_impulse_time: float = 1.0
 var _demo_impulse_target_id: String = "obj_metal_sphere"
 var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
-var _demo_phase: String = "normal"
+var _demo_step: int = 0
 var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
 var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
+
+# External agent-service behavior policy, mirrored by services/agent. The
+# configuration fingerprint must cover it: world-side settings alone cannot
+# distinguish two runs whose agent behavior differs.
+const AGENT_SERVICE_POLICY_VERSION := "1"
+const AGENT_SERVICE_ACTION_DELAY_TICKS := 12
+const AGENT_SERVICE_ACTION_COOLDOWN_TICKS := 30
+const AGENT_SERVICE_ACTION_DELAY_PROBABILITY := 0.5
+const AGENT_SERVICE_TARGET_IDS := ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"]
+const AGENT_SERVICE_INTERRUPT_TARGET_IDS := ["obj_wood_cube"]
 
 var _agent
 var _ws_client
@@ -205,6 +215,13 @@ func _compute_config_fingerprint() -> String:
 			"collision_shape": {"type": "capsule", "radius_m": 0.3, "height_m": 1.0},
 		},
 		"objects": object_configs,
+		"agent_service": {
+			"policy_version": AGENT_SERVICE_POLICY_VERSION,
+			"action_delay_ticks": AGENT_SERVICE_ACTION_DELAY_TICKS,
+			"action_cooldown_ticks": AGENT_SERVICE_ACTION_COOLDOWN_TICKS,
+			"action_delay_probability": AGENT_SERVICE_ACTION_DELAY_PROBABILITY,
+			"target_sequence": _agent_service_target_sequence(),
+		},
 		"simulation": {
 			"day_cycle_duration_s": _sim_time.day_cycle_duration_s,
 			"demo": {
@@ -228,6 +245,22 @@ func _compute_config_fingerprint() -> String:
 		return ""
 	hashing_context.update(canonical_json.to_utf8_buffer())
 	return hashing_context.finish().hex_encode()
+
+func _agent_service_target_sequence() -> Array:
+	# Mirror AgentService._handle_hello's deterministic target sequence. The
+	# fingerprint records the effective policy; keep this in lockstep with
+	# services/agent/src/agent_service.py (checked by a cross-language test).
+	var targets: Array = [
+		{"target_id": "obj_nonexistent", "action_type": "touch"},
+		{"target_id": "", "action_type": "wait"},
+	]
+	for target_id in AGENT_SERVICE_TARGET_IDS:
+		targets.append({"target_id": target_id, "action_type": "move"})
+		var touch := {"target_id": target_id, "action_type": "touch"}
+		if target_id in AGENT_SERVICE_INTERRUPT_TARGET_IDS:
+			touch["interrupt_after"] = true
+		targets.append(touch)
+	return targets
 
 func _canonicalize_config(value: Variant) -> Variant:
 	if value is Dictionary:
@@ -264,26 +297,49 @@ func _physics_process(delta: float) -> void:
 			_get_nearby_objects()
 		)
 
-	# Demo sequence: pause/resume/time-scale/reset at scheduled times
+	# Demo sequence: pause/resume/time-scale/reset at scheduled times. The step
+	# counter makes each transition one-shot; matching only on elapsed wall time
+	# would re-fire the pause branch as soon as the phase returned to normal.
 	_demo_timer += delta
-	if _demo_phase == "normal" and _demo_timer >= _demo_pause_time:
+	if _demo_step == 0 and _demo_timer >= _demo_pause_time:
 		_sim_time.pause()
-		_demo_phase = "paused"
+		_demo_step = 1
+		_append_domain_event("simulation_paused", "", {
+			"description": "Simulation paused by demo control",
+			"reason": "demo_schedule",
+			"simulation_tick": _sim_time.simulation_tick,
+		})
 		print("  SIM PAUSED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_phase == "paused" and _demo_timer >= _demo_resume_time:
+	elif _demo_step == 1 and _demo_timer >= _demo_resume_time:
 		_sim_time.resume()
-		_demo_phase = "normal"
+		_demo_step = 2
+		_append_domain_event("simulation_resumed", "", {
+			"description": "Simulation resumed by demo control",
+			"reason": "demo_schedule",
+			"simulation_tick": _sim_time.simulation_tick,
+		})
 		print("  SIM RESUMED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_phase == "normal" and _demo_timer >= _demo_scale_time:
+	elif _demo_step == 2 and _demo_timer >= _demo_scale_time:
 		_sim_time.set_time_scale(_demo_scale_factor)
-		_demo_phase = "scaled"
+		_demo_step = 3
+		_append_domain_event("simulation_time_scale_changed", "", {
+			"description": "Simulation time scale changed by demo control",
+			"reason": "demo_schedule",
+			"time_scale": _demo_scale_factor,
+			"simulation_tick": _sim_time.simulation_tick,
+		})
 		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_phase == "scaled" and _demo_timer >= _demo_reset_time:
+	elif _demo_step == 3 and _demo_timer >= _demo_reset_time:
 		# Accumulate simulation time before reset for monotonic run clock
 		_cumulative_run_time += _sim_time.simulation_time
 		_sim_time.reset()
 		_sim_time.set_time_scale(1.0)
-		_demo_phase = "reset"
+		_demo_step = 4
+		_append_domain_event("simulation_reset", "", {
+			"description": "Simulation reset by demo control",
+			"reason": "demo_schedule",
+			"cumulative_run_time_s": _cumulative_run_time,
+		})
 		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d, cumulative=%.3f)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick, _cumulative_run_time])
 
 	# Apply gravity only when not paused (pause freezes behavior without corrupting state)

@@ -274,15 +274,19 @@ class AgentService:
     def _message_matches_session(client: Dict, msg) -> bool:
         """Return True when msg belongs to the client's registered session.
 
-        World messages carry ``agent_id`` and a correlation ``run_id``. A
-        misconfigured or foreign world must not be able to mutate this
-        session's agent state (revisions, pending actions, target cursor).
+        World messages carry a top-level ``run_id`` and ``agent_id`` in addition
+        to a correlation block. A misconfigured or foreign world must not be
+        able to mutate this session's agent state (revisions, pending actions,
+        target cursor), so every identity field the message carries is checked.
         """
         correlation = client.get("correlation")
         if correlation is None:
             return True
         msg_correlation = getattr(msg, "correlation", None)
         if msg_correlation is not None and msg_correlation.run_id != correlation.run_id:
+            return False
+        msg_run_id = getattr(msg, "run_id", None)
+        if msg_run_id is not None and msg_run_id != correlation.run_id:
             return False
         msg_agent_id = getattr(msg, "agent_id", None)
         if msg_agent_id is not None and msg_agent_id != correlation.agent_id:

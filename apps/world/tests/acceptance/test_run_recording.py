@@ -112,6 +112,20 @@ def test_room_persists_a_complete_run():
         impulse_events = record.get_events("object_impulse_applied")
         assert len(impulse_events) == 1
         assert impulse_events[0]["metadata"]["impulse"] == {"x": 2.0, "y": 0.0, "z": 0.0}
+        # Demo controls change physics and agent timing, so each executed
+        # transition must be in the authoritative stream, in execution order.
+        control_events = [
+            event
+            for event in record.events
+            if event["event_type_id"].startswith("simulation_")
+        ]
+        assert [event["event_type_id"] for event in control_events] == [
+            "simulation_paused",
+            "simulation_resumed",
+            "simulation_time_scale_changed",
+            "simulation_reset",
+        ]
+        assert control_events[2]["metadata"]["time_scale"] == 2.0
         assert record.is_valid()
         assert all(
             current["timestamp_s"] >= previous["timestamp_s"]
@@ -195,10 +209,32 @@ def test_recorder_rejects_decreasing_event_timestamps():
         assert [event["id"] for event in record.events] == ["evt_started"]
 
 
+def test_recorder_rejects_duplicate_event_ids():
+    """A reused event id must invalidate the run before it is persisted."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        runs_dir = Path(temp_dir) / "duplicate-id-runs"
+        _run_godot(
+            data_home,
+            "--script",
+            "res://tests/acceptance/recorder_duplicate_id_harness.gd",
+            extra_environment={"AGENT_WORLD_TEST_RUNS_DIR": str(runs_dir)},
+            timeout=15,
+        )
+
+        record = RunRecord.load(str(runs_dir / "run_duplicate_id_test"))
+        assert record.validate() == []
+        assert record.status == "aborted"
+        assert record.get_final_validity() == "invalid"
+        assert not record.is_valid()
+        assert [event["id"] for event in record.events] == ["evt_repeated"]
+
+
 if __name__ == "__main__":
     test_room_persists_a_complete_run()
     test_run_without_agent_session_is_aborted()
     test_run_lost_after_handshake_is_aborted()
     test_recorder_failure_is_persisted_as_invalid_run()
     test_recorder_rejects_decreasing_event_timestamps()
+    test_recorder_rejects_duplicate_event_ids()
     print("All run recording acceptance tests passed!")

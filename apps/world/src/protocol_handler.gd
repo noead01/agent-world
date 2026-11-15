@@ -387,6 +387,33 @@ func send_action(action: Dictionary) -> void:
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 	_trace.end_span(span)
 
+# Send a terminal action result using an existing execution span's trace context.
+# This keeps the physical outcome and its publication in the same trace.
+func send_terminal_result(action: Dictionary, parent_span: Dictionary = {}) -> void:
+	var msg = action.duplicate()
+	var correlation = _make_correlation()
+	if parent_span:
+		correlation["trace_id"] = parent_span.get("trace_id", "")
+		correlation["span_id"] = parent_span.get("span_id", "")
+	else:
+		# Fallback: create a new span if no parent provided (should not happen in normal flow)
+		var fallback_span = _trace.start_span(
+			_trace_template.SPAN_ACTION_EXECUTE,
+			{},
+			_trace.bounded_attributes(
+				experiment_id, scenario_id, scenario_version, agent_id,
+				_current_world_revision, _current_simulation_tick,
+				_current_simulation_time, "world", "1.0.0",
+			),
+		)
+		correlation["trace_id"] = fallback_span.get("trace_id", "")
+		correlation["span_id"] = fallback_span.get("span_id", "")
+		_trace.end_span(fallback_span)
+	msg["correlation"] = correlation
+	msg["request_world_revision"] = _current_world_revision
+	_websocket_client.send_message(msg)
+	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+
 func _make_correlation() -> Dictionary:
 	# Resolve lazily as well as in set_websocket_client(), because sibling node
 	# _ready() order can expose the client before its trace ID is initialized.

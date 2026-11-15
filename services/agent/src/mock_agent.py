@@ -251,61 +251,79 @@ class MockAgent:
         if self._awaiting_world_state:
             return
 
-        # Reconstruct the parent span context from the correlation base so
-        # deliberation traces are children of the world trace that sent the
-        # WorldState. If correlation lacks trace_id/span_id, a new trace is
-        # started (fails open for telemetry).
-        parent_span_ctx = span_context_from_correlation(self.correlation_base)
-        if parent_span_ctx.is_valid:
-            parent_context = trace.set_span_in_context(
-                trace.NonRecordingSpan(parent_span_ctx)
+        # Serve an artificial delay once simulated time has advanced far enough.
+        # The command keeps the revision/timestamp captured when it was
+        # scheduled so it arrives stale, reproducing the seeded behavior.
+        pending = self._pending_delay
+        if pending is not None:
+            if pending["remaining_ticks"] > 0:
+                return
+            self._pending_delay = None
+            await self._issue_next_action(
+                pending["world_revision"],
+                pending["simulation_tick"],
+                pending["simulation_time"],
+                target_index=pending["target_index"],
+                advance=pending["advance"],
+                apply_delay=False,
             )
-        else:
-            parent_context = None
+            return
 
-        tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(
-            SPAN_DELIBERATION_REQUEST,
-            context=parent_context,
-            attributes=span_attributes_from_correlation(self.correlation_base),
-        ):
-            # Serve an artificial delay once simulated time has advanced far enough.
-            # The command keeps the revision/timestamp captured when it was
-            # scheduled so it arrives stale, reproducing the seeded behavior.
-            pending = self._pending_delay
-            if pending is not None:
-                if pending["remaining_ticks"] > 0:
-                    return
-                self._pending_delay = None
-                await self._issue_next_action(
-                    pending["world_revision"],
-                    pending["simulation_tick"],
-                    pending["simulation_time"],
-                    target_index=pending["target_index"],
-                    advance=pending["advance"],
-                    apply_delay=False,
-                )
-                return
+        if self.cooldown_remaining_ticks > 0:
+            return
 
-            if self.cooldown_remaining_ticks > 0:
-                return
+        # While an action is in progress, only issue the next target when it is
+        # explicitly marked to interrupt the current (possibly stuck) action.
+        if self._action_in_progress:
+            if (
+                self.current_target_index < len(self.targets)
+                and self.targets[self.current_target_index].get("interrupt_after", False)
+                and self.last_world_state
+            ):
+                # Reconstruct the parent span context from the correlation base so
+                # deliberation traces are children of the world trace that sent the
+                # WorldState. If correlation lacks trace_id/span_id, a new trace is
+                # started (fails open for telemetry).
+                parent_span_ctx = span_context_from_correlation(self.correlation_base)
+                if parent_span_ctx.is_valid:
+                    parent_context = trace.set_span_in_context(
+                        trace.NonRecordingSpan(parent_span_ctx)
+                    )
+                else:
+                    parent_context = None
 
-            # While an action is in progress, only issue the next target when it is
-            # explicitly marked to interrupt the current (possibly stuck) action.
-            if self._action_in_progress:
-                if (
-                    self.current_target_index < len(self.targets)
-                    and self.targets[self.current_target_index].get("interrupt_after", False)
-                    and self.last_world_state
+                tracer = trace.get_tracer(__name__)
+                with tracer.start_as_current_span(
+                    SPAN_DELIBERATION_REQUEST,
+                    context=parent_context,
+                    attributes=span_attributes_from_correlation(self.correlation_base),
                 ):
                     await self._issue_next_action(
                         self.last_world_state.world_revision,
                         self.last_world_state.simulation_tick,
                         self.last_world_state.simulation_time,
                     )
-                return
+            return
 
-            if self.current_target_index < len(self.targets) and self.last_world_state:
+        if self.current_target_index < len(self.targets) and self.last_world_state:
+            # Reconstruct the parent span context from the correlation base so
+            # deliberation traces are children of the world trace that sent the
+            # WorldState. If correlation lacks trace_id/span_id, a new trace is
+            # started (fails open for telemetry).
+            parent_span_ctx = span_context_from_correlation(self.correlation_base)
+            if parent_span_ctx.is_valid:
+                parent_context = trace.set_span_in_context(
+                    trace.NonRecordingSpan(parent_span_ctx)
+                )
+            else:
+                parent_context = None
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                SPAN_DELIBERATION_REQUEST,
+                context=parent_context,
+                attributes=span_attributes_from_correlation(self.correlation_base),
+            ):
                 await self._issue_next_action(
                     self.last_world_state.world_revision,
                     self.last_world_state.simulation_tick,

@@ -571,11 +571,8 @@ func _take_action_context(action_type_id: String, command_id: String) -> Diction
 
 func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
-	# End the execution span for this action.
+	# Get the execution span for this action (will end it after sending result).
 	var span = _active_action_spans.get(command_id)
-	if span:
-		_active_action_spans.erase(command_id)
-		_trace.end_span(span)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -589,9 +586,14 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 			"parameters": {},
 			"intention_id": "",
 			"result": result,
-			"correlation": _protocol_handler._make_correlation(),
+			"correlation": {},  # Will be filled by send_terminal_result
 		}
-		_protocol_handler.send_action(action)
+		# Send terminal result using the execution span as parent trace context.
+		_protocol_handler.send_terminal_result(action, span)
+	# Now end the execution span - it contains both the action execution AND its result publication.
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	
 	_append_domain_event("agent_action_completed", context["target_instance_id"], {
 		"action_type": action_type_id,
@@ -602,11 +604,7 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 
 func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
-	# End the execution span for this action.
 	var span = _active_action_spans.get(command_id)
-	if span:
-		_active_action_spans.erase(command_id)
-		_trace.end_span(span)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -620,9 +618,12 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 			"parameters": {},
 			"intention_id": "",
 			"result": "failure",
-			"correlation": _protocol_handler._make_correlation(),
+			"correlation": {},
 		}
-		_protocol_handler.send_action(action)
+		_protocol_handler.send_terminal_result(action, span)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	
 	_append_domain_event("agent_action_failed", context["target_instance_id"], {
 		"action_type": action_type_id,
@@ -633,11 +634,7 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 
 func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
-	# End the execution span for this action.
 	var span = _active_action_spans.get(command_id)
-	if span:
-		_active_action_spans.erase(command_id)
-		_trace.end_span(span)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -651,9 +648,12 @@ func _on_agent_action_interrupted(action_type_id: String, command_id: String) ->
 			"parameters": {},
 			"intention_id": "",
 			"result": "failure",
-			"correlation": _protocol_handler._make_correlation(),
+			"correlation": {},
 		}
-		_protocol_handler.send_action(action)
+		_protocol_handler.send_terminal_result(action, span)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	
 	_append_domain_event("agent_action_interrupted", context["target_instance_id"], {
 		"action_type": action_type_id,

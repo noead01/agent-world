@@ -85,6 +85,8 @@ The first meaningful change on a feature branch moves its entry from `backlog/pN
 | TODO-0036 | [Add model cost and latency comparison](backlog/p2/TODO-0036-add-model-cost-and-latency-comparison.md) | `feature` |
 | TODO-0037 | [Add synchronized saved-run playback](backlog/p2/TODO-0037-add-synchronized-saved-run-playback.md) | `feature` |
 | TODO-0038 | [Add observability profiles and retention policies](backlog/p2/TODO-0038-add-observability-profiles-and-retention-policies.md) | `feature` |
+| TODO-0047 | [Add operational metrics for critical path operations](backlog/p2/TODO-0047-add-operational-metrics-for-critical-path.md) | `feature` |
+| TODO-0048 | [Add health endpoints and instrumentation overhead budget](backlog/p2/TODO-0048-add-health-endpoints-and-overhead-budget.md) | `feature` |
 
 ## P3 — Research directions
 

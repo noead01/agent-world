@@ -7,6 +7,8 @@ import time
 from typing import Dict, Optional
 import websockets
 from websockets.asyncio.server import ServerConnection as WebSocketServerProtocol
+from opentelemetry import trace
+
 from .schemas import (
     Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Observation, Error
 )
@@ -14,6 +16,11 @@ from .protocol import (
     parse_message, serialize_message, PROTOCOL_VERSION, make_error
 )
 from .mock_agent import MockAgent
+from .tracing import (
+    init_tracing, shutdown_tracing,
+    span_attributes_from_correlation,
+    SPAN_ACTION_EXECUTE,
+)
 
 
 class AgentService:
@@ -52,6 +59,7 @@ class AgentService:
         
     async def start(self) -> None:
         """Start the WebSocket server."""
+        init_tracing()
         self.server = await websockets.serve(
             self._handle_connection,
             self.host,
@@ -67,6 +75,7 @@ class AgentService:
     async def stop(self) -> None:
         """Stop the server."""
         self._running = False
+        shutdown_tracing()
         if self._tick_task:
             self._tick_task.cancel()
             try:

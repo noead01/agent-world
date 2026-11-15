@@ -21,6 +21,7 @@ var fixed_timestep_hz: float = 60.0
 
 var objects: Array = []
 var _sim_time_template = preload("res://src/simulation_time.gd")
+var _trace_template = preload("res://src/trace.gd")
 var _sim_time
 var _light: DirectionalLight3D
 var _last_light_hour: float = -1.0
@@ -42,6 +43,7 @@ var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
 var _demo_step: int = 0
 var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
 var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
+var _trace
 
 # External agent-service behavior policy, mirrored by services/agent. The
 # configuration fingerprint must cover it: world-side settings alone cannot
@@ -170,6 +172,9 @@ func _ready() -> void:
 	# Store references
 	_ws_client = ws_client
 	_protocol_handler = protocol_handler
+
+	# Trace context for the world runtime.
+	_trace = _trace_template.new()
 
 	# Connect ProtocolHandler signals
 	_protocol_handler.action_received.connect(_on_action_received)
@@ -483,7 +488,23 @@ func _on_action_received(action: Dictionary) -> void:
 		var target_id = action.get("target_instance_id", "")
 		# Preserve the command id so terminal results can be correlated with the
 		# exact request the agent service is waiting on.
+
+		# Trace: world.action.execute (world executing an agent-service command)
+		var action_correlation = action.get("correlation", {})
+		var span = _trace.start_span(
+			_trace_template.SPAN_ACTION_EXECUTE,
+			{
+				"trace_id": action_correlation.get("trace_id", ""),
+				"span_id": action_correlation.get("span_id", ""),
+			},
+			_trace.bounded_attributes(
+				_protocol_handler.experiment_id, _protocol_handler.scenario_id,
+				_protocol_handler.scenario_version, _protocol_handler.agent_id,
+				_world_revision, 0, 0.0, "world", "1.0.0",
+			),
+		)
 		_agent.execute_action(action_type, target_id, action.get("id", ""))
+		_trace.end_span(span)
 
 func _on_action_result(result: Dictionary) -> void:
 	# ActionResult received (response to action we sent) - currently not used since agent service drives actions

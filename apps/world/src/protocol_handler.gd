@@ -25,8 +25,11 @@ var _tick_counter: int = 0
 var _pending_requests: Dictionary = {}  # request_id -> {type, correlation, timestamp}
 var _received_commands: Dictionary = {}  # command_id -> {terminal_result}
 var _trace_id: String = ""
+var _trace
+var _trace_template = preload("res://src/trace.gd")
 
 func _ready() -> void:
+	_trace = _trace_template.new()
 	# Only auto-discover WebSocketClient if not already set via set_websocket_client
 	if _websocket_client == null and has_node("../WebSocketClient"):
 		set_websocket_client(get_node("../WebSocketClient"))
@@ -52,6 +55,14 @@ func _on_disconnected(reason: String) -> void:
 
 func _on_message_received(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
+	# Extract trace context from incoming correlation for span propagation.
+	var incoming_correlation = msg.get("correlation")
+	if incoming_correlation is Dictionary:
+		var incoming_trace_id = incoming_correlation.get("trace_id", "")
+		var incoming_span_id = incoming_correlation.get("span_id", "")
+		if incoming_trace_id != "":
+			_trace_id = incoming_trace_id
+
 	match msg_type:
 		"HelloAck":
 			_on_hello_ack(msg)
@@ -249,6 +260,17 @@ func send_observation(observation: Dictionary) -> void:
 	msg["correlation"] = _make_correlation()
 	_websocket_client.send_message(msg)
 	observation_ready.emit(msg)
+	# Trace: world.observation.publish
+	var span = _trace.start_span(
+		_trace_template.SPAN_OBSERVATION_PUBLISH,
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, agent_id,
+			_current_world_revision, _current_simulation_tick,
+			_current_simulation_time, "world", "1.0.0",
+		),
+	)
+	_trace.end_span(span)
 
 func send_intention(intention: Dictionary) -> void:
 	var msg = intention.duplicate()
@@ -259,6 +281,17 @@ func send_intention(intention: Dictionary) -> void:
 	_websocket_client.send_message(msg)
 	intention_sent.emit(msg)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	# Trace: world.action.execute (intention is an action)
+	var span = _trace.start_span(
+		_trace_template.SPAN_ACTION_EXECUTE,
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, agent_id,
+			_current_world_revision, _current_simulation_tick,
+			_current_simulation_time, "world", "1.0.0",
+		),
+	)
+	_trace.end_span(span)
 
 func send_action(action: Dictionary) -> void:
 	var msg = action.duplicate()
@@ -270,6 +303,17 @@ func send_action(action: Dictionary) -> void:
 		_received_commands[msg["id"]]["terminal_result"] = msg.duplicate(true)
 	_websocket_client.send_message(msg)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	# Trace: world.action.execute
+	var span = _trace.start_span(
+		_trace_template.SPAN_ACTION_EXECUTE,
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, agent_id,
+			_current_world_revision, _current_simulation_tick,
+			_current_simulation_time, "world", "1.0.0",
+		),
+	)
+	_trace.end_span(span)
 
 func _make_correlation() -> Dictionary:
 	# Resolve lazily as well as in set_websocket_client(), because sibling node
@@ -277,7 +321,7 @@ func _make_correlation() -> Dictionary:
 	if _trace_id == "" and _websocket_client and _websocket_client.has_method("get_trace_id"):
 		_trace_id = _websocket_client.get_trace_id()
 	if _trace_id == "":
-		_trace_id = Crypto.new().generate_random_bytes(16).hex_encode()
+		_trace_id = _trace.get_trace_id()
 	return {
 		"experiment_id": experiment_id,
 		"scenario_id": scenario_id,

@@ -1,17 +1,17 @@
 ---
 id: TODO-0011
-priority: P0
-status: backlog
+priority: null
+status: in-progress
 type: feature
 title: "Instrument the critical path"
 dependencies:
   - TODO-0005
   - TODO-0009
   - TODO-0010
-branch: null
+branch: feature/todo-0011-instrument-the-critical-path
 pull_request: null
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-15
 ---
 
 # Instrument the critical path
@@ -46,6 +46,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 ## Status history
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
+- 2026-11-15 — `in-progress`: Selected for implementation; branch `feature/todo-0011-instrument-the-critical-path`.
 
 ## Notes
 

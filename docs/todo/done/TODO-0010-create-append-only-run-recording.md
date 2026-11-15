@@ -1,7 +1,7 @@
 ---
 id: TODO-0010
 priority: null
-status: in-progress
+status: done
 type: feature
 title: "Create append-only run recording"
 dependencies:
@@ -57,6 +57,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 - 2026-11-14 — `in-progress`: Reopened to address three further PR #10 review findings about simulation-driven agent timers and reconnect cancellation.
 - 2026-11-14 — `in-progress`: Reopened for seven further PR #10 review findings; resynchronized the file location, status metadata, and backlog index link.
 - 2026-11-15 — `in-progress`: All twelve PR #10 review findings implemented with regression tests; unit, acceptance, and repository validation pass.
+- 2026-11-15 — `done`: PR #10 merged to main; item complete.
 
 ## Notes
 

@@ -63,15 +63,20 @@ class RunRecord:
         run_json_path = run_path / "run.json"
         if not run_json_path.exists():
             raise FileNotFoundError(f"run.json not found in {run_dir}")
+        load_errors: List[str] = []
         with open(run_json_path) as f:
             run_meta = json.load(f)
-        
+        if not isinstance(run_meta, dict):
+            load_errors.append(
+                f"run.json top level: expected JSON object, got {type(run_meta).__name__}"
+            )
+            run_meta = {}
+
         # Load events
         events = []
         events_path = run_path / "events.jsonl"
         if not events_path.is_file():
             raise FileNotFoundError(f"events.jsonl not found in {run_dir}")
-        load_errors: List[str] = []
         with open(events_path) as f:
             for i, line in enumerate(f):
                 line = line.strip()
@@ -126,9 +131,9 @@ class RunRecord:
             return run_meta[name]
 
         return cls(
-            run_id=run_meta["id"],
-            scenario_id=run_meta["scenario_id"],
-            version=run_meta["version"],
+            run_id=instance_field("id", ""),
+            scenario_id=instance_field("scenario_id", ""),
+            version=instance_field("version", ""),
             agent_id=instance_field("agent_id", ""),
             started_at=instance_field("started_at", ""),
             ended_at=run_meta.get("ended_at"),

@@ -51,6 +51,8 @@ def test_fingerprint_covers_demo_timing_and_impulse_controls():
         "_demo_impulse_time",
         "_demo_impulse_target_id",
         "_demo_impulse_vector",
+        "stale_threshold",
+        "world_state_interval_ticks",
     ):
         assert control in fingerprint
 

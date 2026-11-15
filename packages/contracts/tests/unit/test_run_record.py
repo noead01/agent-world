@@ -333,6 +333,28 @@ def test_load_diagnoses_non_object_jsonl_entries():
     assert any("expected JSON object, got NoneType" in error for error in errors)
 
 
+def test_load_diagnoses_non_object_run_metadata():
+    """run.json with valid JSON but non-object top level must not TypeError.
+
+    A run.json containing ``[]`` or ``null`` is valid JSON but not a valid
+    run metadata object. The loader must diagnose it during load so validation
+    can classify the run as invalid instead of raising TypeError when indexing.
+    """
+    for bad_json, expected_type in (("[]", "list"), ("null", "NoneType")):
+        with tempfile.TemporaryDirectory() as run_dir:
+            with open(os.path.join(run_dir, "run.json"), "w") as f:
+                f.write(bad_json)
+            open(os.path.join(run_dir, "events.jsonl"), "w").close()
+            open(os.path.join(run_dir, "validity.jsonl"), "w").close()
+
+            record = RunRecord.load(run_dir)
+            errors = record.validate()
+
+        assert any(f"expected JSON object, got {expected_type}" in error for error in errors), (
+            f"missing diagnostic for non-object run.json {bad_json}: {errors}"
+        )
+
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

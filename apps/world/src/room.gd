@@ -13,6 +13,12 @@ var half_size: Vector3 = Vector3(13.5, 13.5, 13.5)
 var gravity: Vector3 = Vector3(0, -9.8, 0)
 var fixed_timestep_hz: float = 60.0
 
+# Protocol timing controls (mirrored on ProtocolHandler). Changing either alters
+# whether delayed commands are accepted or retried and at which simulation ticks
+# the service advances, so they are included in the configuration fingerprint.
+@export var stale_threshold: int = 5
+@export var world_state_interval_ticks: int = 5
+
 var objects: Array = []
 var _sim_time_template = preload("res://src/simulation_time.gd")
 var _sim_time
@@ -156,6 +162,8 @@ func _ready() -> void:
 	var protocol_handler = _protocol_handler_template.new()
 	protocol_handler.agent_id = _agent.agent_id
 	protocol_handler.run_id = run_id
+	protocol_handler.stale_threshold = stale_threshold
+	protocol_handler.world_state_interval_ticks = world_state_interval_ticks
 	protocol_handler.set_websocket_client(ws_client)
 	add_child(protocol_handler)
 
@@ -200,6 +208,8 @@ func _compute_config_fingerprint() -> String:
 			"fixed_timestep_hz": fixed_timestep_hz,
 			"physics_engine": "JoltPhysics",
 			"boundary_thickness_m": 0.2,
+			"stale_threshold": stale_threshold,
+			"world_state_interval_ticks": world_state_interval_ticks,
 		},
 		"agent": {
 			"agent_id": _agent.agent_id,

@@ -68,6 +68,10 @@ var _active_action_spans: Dictionary = {}  # command_id -> span
 var _agent_session_established: bool = false
 var _agent_session_connected: bool = false
 
+# Health status emission
+var _health_timer: float = 0.0
+const HEALTH_INTERVAL_S: float = 5.0
+
 func _ready() -> void:
 	# Configure project physics settings for Jolt fixed timestep
 	ProjectSettings.set_setting("physics/3d/physics_engine", "JoltPhysics")
@@ -312,6 +316,12 @@ func _physics_process(delta: float) -> void:
 			_agent.get_agent_dict(),
 			_get_nearby_objects()
 		)
+		
+		# Emit health status periodically
+		_health_timer += delta
+		if _health_timer >= HEALTH_INTERVAL_S:
+			_health_timer = 0.0
+			_protocol_handler.send_health_status()
 
 	# Demo sequence: pause/resume/time-scale/reset at scheduled times. The step
 	# counter makes each transition one-shot; matching only on elapsed wall time

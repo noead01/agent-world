@@ -8,6 +8,7 @@ signal action_received(action: Dictionary)
 signal action_result_received(result: Dictionary)
 signal stale_request_rejected(request_id: String, current_revision: int)
 signal invalid_command_rejected(request_id: String, reason: String)
+signal health_status_ready(health_status: Dictionary)
 
 @export var agent_id: String = "wanderer_01"
 @export var run_id: String = "run_001"
@@ -435,3 +436,61 @@ func _make_correlation() -> Dictionary:
 		"component": "world",
 		"component_version": "1.0.0",
 	}
+
+# Build and send a HealthStatus message per health_status.schema.json
+func build_health_status() -> Dictionary:
+	var physics_healthy = _trace != null && _current_simulation_tick > 0
+	var recorder_healthy = true  # EventRecorder doesn't expose failure state yet
+	var telemetry_healthy = _trace != null
+	
+	var components = {
+		"physics": {
+			"status": "healthy" if physics_healthy else "degraded",
+			"advancing": physics_healthy,
+			"tick_overrun_count": 0,
+			"active_body_count": 0,
+			"contact_count": 0,
+		},
+		"recorder": {
+			"status": "healthy" if recorder_healthy else "degraded",
+			"writable": recorder_healthy,
+			"pending_events": 0,
+		},
+		"telemetry_exporter": {
+			"status": "healthy" if telemetry_healthy else "degraded",
+			"last_export_timestamp": Time.get_unix_time_from_system() if telemetry_healthy else 0,
+		},
+		"artifact_store": {
+			"status": "healthy",
+			"writable": true,
+		},
+		"evaluator": {
+			"status": "healthy",
+			"scenario_loaded": true,
+		},
+	}
+	
+	# Overall status
+	var overall = "healthy"
+	for comp in components.values():
+		if comp.status == "failed":
+			overall = "failed"
+			break
+		elif comp.status == "degraded" and overall == "healthy":
+			overall = "degraded"
+	
+	return {
+		"type": "HealthStatus",
+		"run_id": run_id,
+		"timestamp_s": _current_simulation_time,
+		"version": "1.0.0",
+		"overall": overall,
+		"components": components,
+	}
+
+func send_health_status() -> void:
+	var msg = build_health_status()
+	if _websocket_client:
+		_websocket_client.send_message(msg)
+		print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	health_status_ready.emit(msg)

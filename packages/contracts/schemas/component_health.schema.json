@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "component_health.schema.json",
+  "title": "ComponentHealth",
+  "definitions": {
+    "physics": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["healthy", "degraded", "failed"] },
+        "advancing": { "type": "boolean" },
+        "tick_overrun_count": { "type": "integer", "minimum": 0 },
+        "active_body_count": { "type": "integer", "minimum": 0 },
+        "contact_count": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["status", "advancing", "tick_overrun_count"]
+    },
+    "recorder": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["healthy", "degraded", "failed"] },
+        "writable": { "type": "boolean" },
+        "pending_events": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["status", "writable", "pending_events"]
+    },
+    "telemetry_exporter": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["healthy", "degraded", "failed"] },
+        "last_export_timestamp": { "type": "number", "minimum": 0 }
+      },
+      "required": ["status", "last_export_timestamp"]
+    },
+    "artifact_store": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["healthy", "degraded", "failed"] },
+        "writable": { "type": "boolean" }
+      },
+      "required": ["status", "writable"]
+    },
+    "evaluator": {
+      "type": "object",
+      "properties": {
+        "status": { "enum": ["healthy", "degraded", "failed"] },
+        "scenario_loaded": { "type": "boolean" }
+      },
+      "required": ["status", "scenario_loaded"]
+    }
+  }
+}

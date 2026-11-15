@@ -17,6 +17,14 @@ cd services/agent
 python -m src.agent_service
 ```
 
+## Requirements
+
+- Python 3.11+ as declared in `pyproject.toml`.
+- `websockets` 13 or newer: `src/agent_service.py` imports
+  `websockets.asyncio.server` and `ServerConnection`, introduced with the new
+  asyncio implementation in websockets 13. A lower bound of 12.x permits an
+  installation that cannot import the service.
+
 ## Configuration
 
 Environment variables:
@@ -30,3 +38,5 @@ Environment variables:
 ## Protocol
 
 WebSocket JSON messages with `type` discriminator. Message schemas are defined in `src/schemas.py` and `src/protocol.py`. See [Agent Service Boundary Design](../../docs/superpowers/specs/2026-11-08-todo-0009-agent-service-boundary-design.md) for the protocol specification.
+
+Session isolation is part of the protocol contract. Match an incoming message against the registered session using every identity field it carries: correlation `run_id`, top-level `run_id`, and top-level `agent_id`. A message with a foreign top-level run must not mutate the agent's request or target state.

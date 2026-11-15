@@ -15,8 +15,8 @@ Follow [`CONTRIBUTING.md`](../CONTRIBUTING.md) as the authoritative development 
 - Use squash merge and remove the branch and worktree after merge.
 - Never discard uncommitted work or remove a worktree without inspecting it first.
 
-Before coding, read the relevant ADRs and prioritized backlog. Update documentation, ADRs, telemetry, and backlog entries when the change makes them inaccurate. The world runtime remains authoritative for physical state; LLM output is a validated high-level intention and never direct per-frame control.
+Before coding, read the relevant ADRs and prioritized backlog. Update documentation, ADRs, telemetry, and backlog entries when the change makes them inaccurate. Record behaviorally meaningful outcomes, including pause, resume, time-scale, and reset transitions, in the authoritative event stream. Follow the recording, schema/loader, dependency-version, and protocol-session invariants in `CONTRIBUTING.md`. The world runtime remains authoritative for physical state; LLM output is a validated high-level intention and never direct per-frame control.
 
-If review feedback requires more work, move the item from `done/` back to `in-progress/`; return it to `done/` when the branch is review-ready again. Reprioritization applies only to items still in `backlog/`. Keep metadata synchronized with the path.
+If review feedback requires more work, move the item from `done/` back to `in-progress/`; return it to `done/` when the branch is review-ready again. Reprioritization applies only to items still in `backlog/`. Keep the metadata, path, and the `docs/todo/README.md` link and status synchronized.
 
 When reporting completed work, identify the branch, worktree, verification performed, and pull-request state.

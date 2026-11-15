@@ -25,13 +25,13 @@ docs/todo/
 | `blocked/` | `status: blocked`, `priority: null` | Work cannot proceed; the entry explains why |
 | `done/` | `status: done`, `priority: null` | Implementation and verification are complete; the branch is ready for pull-request review |
 
-The first meaningful change on a feature branch moves its entry from `backlog/pN/` to `in-progress/`, sets `priority: null`, and records the selected priority in status history. The final change before review moves it to `done/`. Review feedback that requires more work moves it back to `in-progress/`. Reprioritization applies only to waiting work and moves the entry between `backlog/p0`–`p3`. Update front matter with every move. `done` means ready for review; it does not mean deployed or released.
+The first meaningful change on a feature branch moves its entry from `backlog/pN/` to `in-progress/`, sets `priority: null`, and records the selected priority in status history. The final change before review moves it to `done/`. Review feedback that requires more work moves it back to `in-progress/`. Reprioritization applies only to waiting work and moves the entry between `backlog/p0`–`p3`. Update front matter with every move. `done` means ready for review; it does not mean deployed or released. Update the item's row in the "Items in review" table in the same change so its link and status column always match the file's location and front matter.
 
 ## Items in review
 
 | Item | Status | Branch | Pull request |
 |---|---|---|---|
-| [TODO-0010 — Create append-only run recording](done/TODO-0010-create-append-only-run-recording.md) | `done` | `feature/todo-0010-append-only-run-recording` | — |
+| [TODO-0010 — Create append-only run recording](in-progress/TODO-0010-create-append-only-run-recording.md) | `in-progress` | `feature/todo-0010-append-only-run-recording` | [#10](https://github.com/noead01/agent-world/pull/10) |
 | [TODO-0004 — Define core identifiers and versioned schemas](done/TODO-0004-define-core-identifiers-and-versioned-schemas.md) | `done` | `feature/todo-0004-core-identifiers-versioned-schemas` | [#2](https://github.com/noead01/agent-world/pull/2) |
 | [TODO-0002 — Create the Godot 4 project](done/TODO-0002-create-the-godot-4-project.md) | `done` | `feature/todo-0002-godot-4-project` | [#3](https://github.com/noead01/agent-world/pull/3) |
 | [TODO-0003 — Retire or archive the browser prototype](done/TODO-0003-retire-or-archive-the-browser-prototype.md) | `done` | `refactor/todo-0003-archive-browser-prototype` | [#6](https://github.com/noead01/agent-world/pull/6) |

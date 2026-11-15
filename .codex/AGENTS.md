@@ -17,8 +17,8 @@ Read and follow [`CONTRIBUTING.md`](../CONTRIBUTING.md) before modifying the pro
 
 Read relevant ADRs and the backlog before implementation. Add an ADR for a durable architectural constraint and update the backlog for intentionally deferred work. Keep the user-facing README free of development instructions.
 
-If review feedback reopens implementation work, move the entry from `done/` back to `in-progress/`; return it to `done/` only when the branch is ready for another review. Reprioritization applies only inside `backlog/`. Keep path and metadata synchronized.
+If review feedback reopens implementation work, move the entry from `done/` back to `in-progress/`; return it to `done/` only when the branch is ready for another review. Reprioritization applies only inside `backlog/`. Keep the path, front matter, and the `docs/todo/README.md` link and status synchronized.
 
-Maintain clear boundaries between world simulation, deterministic agent behavior, asynchronous LLM deliberation, memory, evaluation, and observability. Record behaviorally meaningful outcomes in the authoritative event stream; use OpenTelemetry for operational diagnostics.
+Maintain clear boundaries between world simulation, deterministic agent behavior, asynchronous LLM deliberation, memory, evaluation, and observability. Record behaviorally meaningful outcomes — including pause, resume, time-scale, and reset transitions — in the authoritative event stream; use OpenTelemetry for operational diagnostics. Follow the recording, schema/loader, dependency-version, and protocol-session invariants in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 In the final handoff, report the branch, worktree, commit, verification, and pull-request status. Stop before merge unless the user has explicitly authorized it.

@@ -1,16 +1,16 @@
 ---
 id: TODO-0010
 priority: null
-status: done
+status: in-progress
 type: feature
 title: "Create append-only run recording"
 dependencies:
   - TODO-0004
   - TODO-0005
 branch: feature/todo-0010-append-only-run-recording
-pull_request: null
+pull_request: "10"
 created: 2026-10-29
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 # Create append-only run recording
@@ -55,6 +55,7 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 - 2026-11-14 — `in-progress`: Reopened to address new PR #10 review findings.
 - 2026-11-14 — `done`: Impulse recording, handshake validation, and configuration fingerprint fixes verified.
 - 2026-11-14 — `in-progress`: Reopened to address three further PR #10 review findings about simulation-driven agent timers and reconnect cancellation.
+- 2026-11-14 — `in-progress`: Reopened for seven further PR #10 review findings; resynchronized the file location, status metadata, and backlog index link.
 
 ## Notes
 
@@ -62,3 +63,10 @@ Record blockers, scope changes, implementation decisions, and review context her
 
 - Review lesson: world revisions can advance while simulation is paused, so deterministic behavior timers must use simulation ticks and ignore repeated ticks. Keep cooldowns and seeded delays in ticks instead of converting service-loop deltas or assuming a wall-clock rate.
 - Review lesson: transport shutdown is terminal even when reconnect backoff is already waiting. Check the shutdown state again after every asynchronous wait, before accessing a peer or reconnecting.
+- Review lesson: pause, resume, time-scale, and reset change physics and agent timing. Append a domain event for each transition that actually executes; the planned demo schedule and console logs are not an authoritative record.
+- Review lesson: an entry's directory, `status` front matter, and `docs/todo/README.md` link must move together. A reopened item belongs in `in-progress/` with `status: in-progress`.
+- Review lesson: protocol session filtering must compare every identity field the message carries, including the top-level `run_id`, not just the correlation `run_id` and top-level `agent_id`.
+- Review lesson: a schema is the contract for its loader too. Do not index a field in `load()` that the schema marks optional; require it in the schema or return a diagnostic instead of raising `KeyError` or a type error.
+- Review lesson: dependency lower bounds must match the API actually imported. This service imports `websockets.asyncio.server`, which requires websockets 13 or newer, so `>=12.0` is not a supported floor.
+- Review lesson: a recorder must enforce the same invariants as readback validation before writing. Reject duplicate event IDs at append and invalidate the run rather than persisting a stream that `RunRecord` will reject.
+- Review lesson: a configuration fingerprint must include every behavior-affecting input across processes, including the agent service's target order, action cooldown, and seeded-delay policy; world-side settings alone cannot distinguish runs that differ in agent behavior.

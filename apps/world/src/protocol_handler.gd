@@ -63,7 +63,13 @@ func _on_message_received(msg: Dictionary) -> void:
 			# World sends ActionResults with result in ["success", "failure", "partial"]
 			var result = msg.get("result", "")
 			if result in ["success", "failure", "partial"]:
-				# This is an ActionResult response to an action we sent
+				# This is an ActionResult response to an action we sent. A
+				# terminal result mutates pending state, so validate the same
+				# session identity as an incoming command before classification.
+				var identity_error := _validate_session_identity(msg)
+				if identity_error != "":
+					invalid_command_rejected.emit(String(msg.get("id", "")), identity_error)
+					return
 				_on_action_result(msg)
 			else:
 				# This is an Action command from the agent service (result="pending" or missing)
@@ -157,22 +163,12 @@ func _validate_incoming_command(message: Dictionary) -> String:
 	var command_type = message.get("type", "")
 	if command_type not in ["Action", "Intention"]:
 		return "Unsupported command type"
-	if message.get("run_id", "") != run_id or message.get("agent_id", "") != agent_id:
-		return "Command run_id or agent_id does not match this session"
-
-	var correlation = message.get("correlation")
-	if not correlation is Dictionary:
-		return "Command correlation context is missing"
-	if correlation.get("experiment_id", "") != experiment_id \
-			or correlation.get("scenario_id", "") != scenario_id \
-			or correlation.get("scenario_version", "") != scenario_version \
-			or correlation.get("run_id", "") != run_id \
-			or correlation.get("agent_id", "") != agent_id:
-		return "Command correlation context does not match this session"
-	if not correlation.has_all(["world_revision", "simulation_tick", "simulation_time", "component"]):
-		return "Command correlation context is incomplete"
+	var identity_error := _validate_session_identity(message)
+	if identity_error != "":
+		return identity_error
 
 	var request_revision = _normalize_world_revision(message.get("request_world_revision"))
+	var correlation = message.get("correlation")
 	var correlation_revision = _normalize_world_revision(correlation.get("world_revision"))
 	if request_revision < 0 or correlation_revision != request_revision:
 		return "Command world revision is invalid or inconsistent"
@@ -183,6 +179,25 @@ func _validate_incoming_command(message: Dictionary) -> String:
 		return "Command identity, version, or kind is missing"
 	if (not timestamp is int and not timestamp is float) or timestamp < 0:
 		return "Command timestamp is invalid"
+	return ""
+
+func _validate_session_identity(message: Dictionary) -> String:
+	# Shared by commands and terminal results: a message may only mutate this
+	# session's request state when every identity field matches.
+	if message.get("run_id", "") != run_id or message.get("agent_id", "") != agent_id:
+		return "Message run_id or agent_id does not match this session"
+
+	var correlation = message.get("correlation")
+	if not correlation is Dictionary:
+		return "Message correlation context is missing"
+	if correlation.get("experiment_id", "") != experiment_id \
+			or correlation.get("scenario_id", "") != scenario_id \
+			or correlation.get("scenario_version", "") != scenario_version \
+			or correlation.get("run_id", "") != run_id \
+			or correlation.get("agent_id", "") != agent_id:
+		return "Message correlation context does not match this session"
+	if not correlation.has_all(["world_revision", "simulation_tick", "simulation_time", "component"]):
+		return "Message correlation context is incomplete"
 	return ""
 
 func _normalize_world_revision(value: Variant) -> int:

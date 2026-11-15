@@ -18,6 +18,7 @@ var _run_metadata: Dictionary = {}
 var _validity: String = "valid"
 var _event_count: int = 0
 var _event_ids: Dictionary = {}
+var _run_ended: bool = false
 var _last_event_timestamp = null
 var _id_regex: RegEx
 var _version_regex: RegEx
@@ -123,6 +124,7 @@ func start_run(run_id: String, scenario_id: String, agent_id: String, random_see
 	_validity = "valid"
 	_event_count = 0
 	_event_ids.clear()
+	_run_ended = false
 	_last_event_timestamp = null
 	run_started.emit(run_id)
 	return true
@@ -148,6 +150,19 @@ func append_event(event: Dictionary) -> bool:
 	# elapsed simulated time rather than the 0.0 written by start_run(). The
 	# clock is monotonic so a reordered event cannot move the run backwards.
 	_update_simulation_clock(event_copy.get("timestamp_s"))
+
+	# Enforce the same lifecycle boundaries as RunRecord._validate_event_boundaries
+	# so a stream that readback would reject is never persisted as valid.
+	var event_type = event_copy.get("event_type_id")
+	if _event_count == 0 and event_type != "run_started":
+		_fail_run("Event stream must begin with exactly one run_started event")
+		return false
+	if event_type == "run_started" and _event_count > 0:
+		_fail_run("Event stream must begin with exactly one run_started event")
+		return false
+	if _run_ended:
+		_fail_run("No events may be appended after run_ended")
+		return false
 
 	# The persisted stream must be ordered by time. Reject decreasing
 	# timestamps here so the run is invalidated immediately instead of only
@@ -185,6 +200,8 @@ func append_event(event: Dictionary) -> bool:
 	_event_count += 1
 	if event_id is String:
 		_event_ids[event_id] = true
+	if event_type == "run_ended":
+		_run_ended = true
 	if timestamp is int or timestamp is float:
 		_last_event_timestamp = float(timestamp)
 	
@@ -196,6 +213,12 @@ func end_run(simulation_time_s = null) -> bool:
 		push_error("EventRecorder: No active run")
 		return false
 	
+	# A completed stream must end with exactly one run_ended event; otherwise
+	# write terminal metadata that readback would contradict.
+	if not _run_ended:
+		_fail_run("Completed event stream must end with exactly one run_ended event")
+		return false
+
 	# Update run metadata. A null argument means the caller relied on the
 	# default; keep the clock tracked while appending events instead of
 	# overwriting it with zero.

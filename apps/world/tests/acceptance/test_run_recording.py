@@ -230,6 +230,50 @@ def test_recorder_rejects_duplicate_event_ids():
         assert [event["id"] for event in record.events] == ["evt_repeated"]
 
 
+def test_recorder_enforces_stream_boundaries_before_appending():
+    """Lifecycle rules must reject bad streams before they are persisted."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_home = Path(temp_dir) / "godot-data"
+        runs_dir = Path(temp_dir) / "boundary-runs"
+        _run_godot(
+            data_home,
+            "--script",
+            "res://tests/acceptance/recorder_boundary_harness.gd",
+            extra_environment={"AGENT_WORLD_TEST_RUNS_DIR": str(runs_dir)},
+            timeout=15,
+        )
+
+        first = RunRecord.load(str(runs_dir / "run_boundary_first_test"))
+        assert first.status == "aborted"
+        assert first.get_final_validity() == "invalid"
+        assert first.events == []
+
+        duplicate_start = RunRecord.load(
+            str(runs_dir / "run_boundary_duplicate_start_test")
+        )
+        assert duplicate_start.validate() == []
+        assert duplicate_start.status == "aborted"
+        assert duplicate_start.get_final_validity() == "invalid"
+        assert [event["id"] for event in duplicate_start.events] == ["evt_started"]
+
+        after_end = RunRecord.load(str(runs_dir / "run_boundary_after_end_test"))
+        assert after_end.status == "aborted"
+        assert after_end.get_final_validity() == "invalid"
+        assert [event["event_type_id"] for event in after_end.events] == [
+            "run_started",
+            "run_ended",
+        ]
+
+        missing_end = RunRecord.load(
+            str(runs_dir / "run_boundary_missing_end_event_test")
+        )
+        assert missing_end.status == "aborted"
+        assert missing_end.get_final_validity() == "invalid"
+        assert [event["event_type_id"] for event in missing_end.events] == [
+            "run_started"
+        ]
+
+
 if __name__ == "__main__":
     test_room_persists_a_complete_run()
     test_run_without_agent_session_is_aborted()
@@ -237,4 +281,5 @@ if __name__ == "__main__":
     test_recorder_failure_is_persisted_as_invalid_run()
     test_recorder_rejects_decreasing_event_timestamps()
     test_recorder_rejects_duplicate_event_ids()
+    test_recorder_enforces_stream_boundaries_before_appending()
     print("All run recording acceptance tests passed!")

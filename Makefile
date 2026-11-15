@@ -4,7 +4,7 @@ SHELL := /usr/bin/env bash
 include build/components.mk
 
 .PHONY: help components bootstrap build format format-check lint validate \
-	test-unit test-integration test-acceptance test ci clean
+	test-unit test-integration test-acceptance test ci clean run-agent-service
 
 help: ## Show the supported repository commands.
 	@printf '%s\n' \
@@ -21,6 +21,7 @@ help: ## Show the supported repository commands.
 		'  make test-integration Run cross-component integration tests' \
 		'  make test-acceptance  Run black-box acceptance tests' \
 		'  make test             Run all test layers' \
+		'  make run-agent-service Start the external agent service' \
 		'  make ci               Run every non-mutating CI check' \
 		'  make clean            Remove generated component output'
 
@@ -29,6 +30,9 @@ components: ## List registered components.
 		kind="$$(sed -n 's/^COMPONENT_KIND[[:space:]]*:=[[:space:]]*//p' "$$component/component.mk")"; \
 		printf '%-24s %s\n' "$$component" "$$kind"; \
 	done
+
+run-agent-service: ## Start the external agent service.
+	@$(MAKE) --no-print-directory -C services/agent run-agent-service
 
 bootstrap build format format-check lint clean:
 	@set -e; for component in $(COMPONENTS); do \

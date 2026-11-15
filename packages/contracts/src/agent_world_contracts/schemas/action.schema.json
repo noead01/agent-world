@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:agent-world:contracts:action:1.0.0",
   "title": "Action",
-  "description": "An action. Class-level properties describe the action type and its parameters. Instance-level properties describe a concrete action executed at a specific time.",
+  "description": "An action. Class-level properties describe the action type and its parameters. Instance-level properties describe a concrete action executed at a specific time. Wire messages include type discriminator, correlation context, and request revision.",
   "type": "object",
-  "required": ["id", "run_id", "agent_id", "timestamp_s", "version"],
+  "required": ["id", "run_id", "agent_id", "timestamp_s", "version", "type", "correlation"],
   "properties": {
     "id": {
       "type": "string",
@@ -28,6 +28,20 @@
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
       "description": "[class-level] Schema version of the action record format."
+    },
+    "type": {
+      "type": "string",
+      "const": "Action",
+      "description": "[wire] Message type discriminator."
+    },
+    "correlation": {
+      "$ref": "correlation-context.schema.json",
+      "description": "[wire] Inline correlation context for distributed tracing and session isolation."
+    },
+    "request_world_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "[wire] World revision this command was based on; required for Action/Intention commands from agent to world."
     },
     "action_type_id": {
       "type": "string",
@@ -64,6 +78,20 @@
       "agent_id": "wanderer_01",
       "timestamp_s": 20.0,
       "version": "1.0.0",
+      "type": "Action",
+      "correlation": {
+        "experiment_id": "exp_autonomous_discovery_01",
+        "scenario_id": "first_benchmark_room",
+        "scenario_version": "1.0.0",
+        "run_id": "run_20261029_alpha",
+        "agent_id": "wanderer_01",
+        "world_revision": 42,
+        "simulation_tick": 1200,
+        "simulation_time": 20.0,
+        "component": "agent",
+        "component_version": "1.0.0"
+      },
+      "request_world_revision": 42,
       "action_type_id": "touch",
       "target_instance_id": "coconut_01",
       "parameters": { "approach_distance_m": 0.5 },

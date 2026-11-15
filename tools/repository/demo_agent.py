@@ -20,9 +20,12 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORLD_DIR = os.path.join(ROOT, "apps", "world")
+AGENT_SERVICE_DIR = os.path.join(ROOT, "services", "agent", "src")
 
 
 def check(condition: bool, message: str) -> bool:
@@ -101,6 +104,28 @@ def main() -> int:
 
     all_pass = True
 
+    # Start agent service
+    print("== Starting agent service ==")
+    agent_service_proc = subprocess.Popen(
+        [sys.executable, "-u", "-m", "agent.src.agent_service"],
+        cwd=os.path.join(ROOT, "services"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    # Give agent service time to start
+    time.sleep(2.0)
+    
+    # Check if agent service started successfully
+    if agent_service_proc.poll() is not None:
+        stdout, stderr = agent_service_proc.communicate()
+        print("FAIL: Agent service failed to start")
+        print(f"  stdout: {stdout}")
+        print(f"  stderr: {stderr}")
+        return 1
+    print("  Agent service started on ws://localhost:8765")
+    print()
+
     # Run Godot headless; internal quit() fires after 10 seconds of wall time
     print("== Running Godot against the embodied agent demo ==")
     try:
@@ -119,7 +144,23 @@ def main() -> int:
             print("FAIL: Godot did not exit within 60 seconds.")
     except OSError as exc:
         print(f"FAIL: Could not launch Godot: {exc}")
+        agent_service_proc.terminate()
         return 1
+    finally:
+        # Stop agent service and capture its output
+        agent_service_proc.terminate()
+        try:
+            agent_stdout, agent_stderr = agent_service_proc.communicate(timeout=5)
+            if agent_stdout:
+                print("Agent service stdout:")
+                for line in agent_stdout.splitlines():
+                    print(f"  {line}")
+            if agent_stderr:
+                print("Agent service stderr:")
+                for line in agent_stderr.splitlines():
+                    print(f"  {line}")
+        except subprocess.TimeoutExpired:
+            agent_service_proc.kill()
 
     # Check for script errors (ignore audio/ALSA errors which are environmental)
     script_errors = [line for line in stdout.splitlines() if "SCRIPT ERROR" in line]
@@ -132,6 +173,13 @@ def main() -> int:
         print("  [FAIL] Godot ran with script errors")
     else:
         print("  [PASS] Godot ran without script errors")
+    print()
+    
+    # Print Godot stdout for debugging
+    print("=== Godot stdout ===")
+    for line in stdout.splitlines():
+        print(line)
+    print("====================")
     print()
 
     agent_states = parse_agent_states(stdout)

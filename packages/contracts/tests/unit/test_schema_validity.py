@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - jsonschema is a dev dependency
     jsonschema = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-SCHEMAS_DIR = os.path.join(ROOT, "packages", "contracts", "schemas")
+SCHEMAS_DIR = os.path.join(ROOT, "packages", "contracts", "src", "agent_world_contracts", "schemas")
 
 
 def load_json(path: str) -> object:
@@ -44,7 +44,14 @@ class EmbeddedExamplesValidate(unittest.TestCase):
         for path in schema_files:
             schema = load_json(path)
             sid = schema.get("$id", os.path.basename(path))
-            validator = jsonschema.Draft202012Validator(schema)
+            # Set up a resolver for relative $refs within the schemas directory
+            resolver = jsonschema.RefResolver(
+                base_uri="file://" + SCHEMAS_DIR + "/",
+                referrer=schema,
+                store={os.path.basename(ref_path): load_json(ref_path)
+                       for ref_path in glob.glob(os.path.join(SCHEMAS_DIR, "*.schema.json"))}
+            )
+            validator = jsonschema.Draft202012Validator(schema, resolver=resolver)
             examples = schema.get("examples", [])
             self.assertGreater(len(examples), 0, f"{sid} has no embedded examples")
             for idx, example in enumerate(examples):

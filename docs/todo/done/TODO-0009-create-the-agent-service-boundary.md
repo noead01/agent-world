@@ -1,16 +1,16 @@
 ---
 id: TODO-0009
-priority: P0
-status: backlog
+priority: null
+status: done
 type: feature
 title: "Create the agent-service boundary"
 dependencies:
   - TODO-0004
   - TODO-0005
 branch: null
-pull_request: null
+pull_request: "PR-0009"
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-08
 ---
 
 # Create the agent-service boundary
@@ -45,6 +45,8 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 ## Status history
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
+- 2026-11-08 — `in-progress`: Implementation started; ADR for WebSocket transport created.
+- 2026-11-08 — `done`: PR-0009 merged; agent-service boundary implemented with WebSocket transport.
 
 ## Notes
 

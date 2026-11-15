@@ -47,6 +47,11 @@
     "random_seed": {
       "type": "integer",
       "description": "[instance-level] Seed used for stochastic elements during execution."
+    },
+    "config_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 fingerprint of the effective world, agent, and object configuration used by this run."
     }
   },
   "additionalProperties": false,

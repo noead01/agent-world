@@ -19,6 +19,8 @@ The append-only event record is the authoritative semantic history of a run. It 
 
 It supports behavioral reconstruction, metric reevaluation, and semantic replay. Events that affect the meaning or outcome of an experiment belong here even when telemetry is disabled.
 
+The writer and the reader must enforce the same invariants. Reject an event at append time when it violates the schema, run identity, ordering, or event identifier uniqueness, and invalidate the run immediately rather than persisting a stream that readback will reject. Readback validation must recheck the stored stream independently so a writer defect cannot produce a false valid result.
+
 ### Operational telemetry
 
 Telemetry consists of traces, metrics, and structured logs. It explains software execution and resource use: latency, queueing, errors, physics-step overruns, model requests, retries, connection health, and similar concerns.
@@ -49,6 +51,8 @@ Every signal must carry enough context to join it to the relevant run. Use these
 | `component` | Emitting subsystem and version |
 
 Object, fact, belief, intention, action, memory, and model-call identifiers should be included when relevant. Do not use these high-cardinality identifiers as metric labels unless a diagnostic mode explicitly requires it.
+
+`event.id` is a stable key that readers and downstream indexes use to join records. It must be unique within a run, and a recorder must reject a duplicate before writing it.
 
 ### Time domains
 
@@ -82,7 +86,7 @@ Create bounded traces for operations such as:
 - Action execution from controller start to outcome
 - Memory retrieval, consolidation, or belief revision
 - Discovery-stage evaluation
-- Scenario load, run start, pause, reset, checkpoint, and shutdown
+- Scenario load, run start, pause, resume, time-scale change, reset, checkpoint, and shutdown
 
 Propagate trace context across the Godot/agent-service protocol. Link asynchronous work to the initiating span when parent-child timing would be misleading. Link resulting domain events through `event.id`.
 
@@ -254,12 +258,14 @@ The following belong in the authoritative event stream when they occur:
 - Memory addition, consolidation, deletion, or retrieval used in a decision
 - Belief creation, revision, contradiction, or retirement
 - Discovery stage awarded or revoked, including evidence references
-- Operator intervention, pause, reset, or configuration change
+- Operator intervention, pause, resume, time-scale change, reset, or configuration change, including scripted or demo controls
 - Recording degradation or run invalidation
 
 High-frequency raw physics contacts that have no behavioral significance remain telemetry unless diagnostic capture is active.
 
 ## Determinism and physics diagnostics
+
+The configuration fingerprint must cover every behavior-affecting input, including world physics, spawn configuration, and external agent-service policy such as target order, action cooldown, and seeded-delay settings. Hash a canonical, versioned representation and record the policy version so two runs that differ only in agent behavior remain distinguishable.
 
 Each reproducible run should record periodic checksums over a canonical subset of authoritative state. The subset includes stable body identifiers, transforms, velocities, relevant object state, simulation tick, and deterministic agent-layer state. Quantize or encode floating-point values consistently before hashing.
 

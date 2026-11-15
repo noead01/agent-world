@@ -11,6 +11,8 @@ Keep the documentation types separate:
 - `docs/adr/` records durable architecture decisions and their consequences.
 - `docs/todo/` contains the prioritized engineering and research backlog.
 - `docs/observability.md` defines telemetry, experiment-recording, and behavioral-review conventions.
+- `docs/architecture/` contains versionable architecture diagrams (Mermaid, PlantUML) mapping ADR decisions to components and backlog.
+- `docs/superpowers/specs/` contains detailed implementation designs for individual backlog items.
 
 Update documentation in the same change that makes it inaccurate. Do not use TODO comments or ADRs as substitutes for an issue description when a task needs implementation detail.
 
@@ -93,6 +95,8 @@ make ci
 ```
 
 Components may use different native tooling, but their local Makefile must preserve the shared target names. `make ci` is non-mutating and combines formatting checks, linting, structural validation, tests, and builds. `make bootstrap` is intentionally separate so dependency installation is explicit.
+
+Declare dependency lower bounds that match the APIs actually imported. If code imports a namespace introduced in a newer release, raise the lower bound and refresh the lockfile; a range that permits an unusable version is not a supported installation.
 
 ### Test layers
 
@@ -183,7 +187,7 @@ Draft pull requests are encouraged for early feedback, but they are not mergeabl
 
 The author responds to review feedback on the feature branch. Material new scope should normally become a separate branch and pull request. Do not merge a pull request merely because checks pass; human approval remains required.
 
-If review feedback requires code or documentation changes, move the backlog item from `done/` back to `in-progress/` before making them. Return it to `done/` only after the branch is ready for review again. Keep the metadata status synchronized with its directory path. A pull request must link its backlog entry.
+If review feedback requires code or documentation changes, move the backlog item from `done/` back to `in-progress/` before making them. Return it to `done/` only after the branch is ready for review again. Keep the metadata status synchronized with its directory path, and update the item's link and status in `docs/todo/README.md` in the same change. A pull request must link its backlog entry.
 
 ### Urgent fixes
 
@@ -197,6 +201,8 @@ The system is divided into two processes with an explicit protocol between them:
 2. **Agent service** owns internal drives, attention, memories, beliefs, goal formation, deliberation, reflection, and LLM-provider integration.
 
 The world is authoritative. The agent service can request an action but cannot directly set transforms, bypass collisions, or mutate hidden world state.
+
+The protocol identity envelope spans both the correlation block and top-level message fields. When routing a message to a session, validate every identity field the message carries — at least correlation `run_id`, top-level `run_id`, and top-level `agent_id` — before the message may mutate agent state.
 
 ### Control layers
 
@@ -217,6 +223,10 @@ Use fixed physics steps. Simulation time must be independent of wall-clock time 
 
 Avoid coupling deterministic simulation progress to network latency. Record decision request and response times separately from simulated time.
 
+Agent behavior timers, including mock-agent response delays and action cooldowns, must advance from `WorldState.simulation_tick`, never from service-loop calls or world revisions. The world continues publishing state while paused, so repeated states with the same simulation tick must not advance those timers. Keep timers in ticks to avoid introducing a hidden wall-clock or tick-rate conversion. Intentional transport shutdown must also cancel delayed reconnect attempts before releasing the peer.
+
+Simulation-control transitions — pause, resume, time-scale change, and reset — alter physics and agent timing. Append a domain event for each transition that actually executes. Console output and the planned configuration schedule are not an authoritative record of when a transition occurred.
+
 ### World truth and agent belief
 
 Never expose hidden fact definitions directly to the agent. Maintain separate representations for:
@@ -236,6 +246,15 @@ Follow [`docs/observability.md`](docs/observability.md) when adding instrumentat
 Use OpenTelemetry APIs for traces and operational metrics. Propagate run, agent, world-revision, simulation-tick, and trace correlation across process boundaries. Keep metric labels bounded; stable object, event, request, and run identifiers belong in traces, logs, or domain events rather than metric dimensions.
 
 Instrumentation must not block the simulation, change decision ordering, or become required for experiment meaning. A required event-recording failure invalidates the run; an optional telemetry-export failure only degrades observability.
+
+### Recording and reproducibility invariants
+
+The append-only event record is authoritative only when its writer and reader enforce the same invariants:
+
+- Reject an append that violates the event schema, run identity, ordering, or event-ID uniqueness, and invalidate the run immediately. Do not persist an event stream that readback validation would reject.
+- Revalidate the persisted stream independently on readback; a writer defect must not produce a run reported as valid.
+- Include every input that can change behavior in the configuration fingerprint, including cross-process policy such as the agent service's target order, action cooldown, and seeded-delay settings. A fingerprint covering only world-side settings cannot distinguish runs whose agent behavior differs.
+- Keep shared schemas, writers, and loaders aligned. If a loader requires a field, make the schema require it or return a diagnostic; a schema-valid record must not fail inside the loader with `KeyError` or a type error.
 
 ## Architecture decisions
 
@@ -267,6 +286,8 @@ Each item must include its identifier, status, optional task type and dependenci
 - `done`: implementation and verification are complete and the branch is ready for pull-request review
 
 `done` describes branch readiness, not deployment or release. Moving the entry from `backlog/pN/` to `in-progress/`, clearing its active priority, and recording the selected priority belongs on the feature branch as its first meaningful change. Moving it to `done/` belongs on that same branch before its pull request is created or marked ready for another review. Reprioritization applies only in `backlog/` and moves the file between priority subfolders. Git must recognize these transitions as renames so the item's history remains continuous. Do not silently delete completed entries; retain them as the historical link between intent, implementation, and review.
+
+Every move must also update the entry's row in `docs/todo/README.md` in the same change. Its link, status column, directory, and front matter must never disagree.
 
 If a branch is abandoned, move its item back to an explicitly chosen `backlog/pN/` priority or into `blocked/` in a separate reviewed change and update its metadata. If implementation changes the priority or scope of adjacent backlog work, update those entries in the same pull request when appropriate.
 

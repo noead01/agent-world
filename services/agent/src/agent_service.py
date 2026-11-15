@@ -1,0 +1,410 @@
+"""WebSocket server for agent service."""
+import asyncio
+import uuid
+import json
+import os
+import time
+from typing import Dict, Optional
+import websockets
+from websockets.asyncio.server import ServerConnection as WebSocketServerProtocol
+from .schemas import (
+    Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Observation, Error
+)
+from .protocol import (
+    parse_message, serialize_message, PROTOCOL_VERSION, make_error
+)
+from .mock_agent import MockAgent
+
+
+class AgentService:
+    """Asyncio WebSocket server for agent communication."""
+    
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8765,
+        experiment_id: str = "exp_autonomous_discovery_01",
+        scenario_id: str = "first_benchmark_room",
+        scenario_version: str = "1.0.0",
+        run_id: str = "run_001",
+        session_ttl_s: float = 60.0,
+    ):
+        self.host = host
+        self.port = port
+        self.experiment_id = experiment_id
+        self.scenario_id = scenario_id
+        self.scenario_version = scenario_version
+        self.run_id = run_id
+        self.session_ttl_s = max(float(session_ttl_s), 0.0)
+        
+        self.server: Optional[websockets.Server] = None
+        self.clients: Dict[str, Dict] = {}  # agent_id -> {websocket, mock_agent, correlation}
+        # Per-run agent state that survives transient socket disconnects so a
+        # reconnect resumes the deterministic sequence instead of restarting it.
+        self.agent_sessions: Dict[str, MockAgent] = {}  # "<agent_id>:<run_id>" -> MockAgent
+        self._disconnected_sessions: Dict[str, float] = {}
+        self._next_session_cleanup = 0.0
+        self._running = False
+        self._tick_task: Optional[asyncio.Task] = None
+        # Per-session tick tasks so one session's seeded action delay cannot
+        # hold back the tick loop for every other session.
+        self._tick_tasks: Dict[str, asyncio.Task] = {}
+        
+    async def start(self) -> None:
+        """Start the WebSocket server."""
+        self.server = await websockets.serve(
+            self._handle_connection,
+            self.host,
+            self.port,
+            ping_interval=5,
+            ping_timeout=10,
+        )
+        self._running = True
+        # Start world simulation tick (simulates world sending WorldState)
+        self._tick_task = asyncio.create_task(self._world_tick_loop())
+        print(f"Agent service started on ws://{self.host}:{self.port}")
+        
+    async def stop(self) -> None:
+        """Stop the server."""
+        self._running = False
+        if self._tick_task:
+            self._tick_task.cancel()
+            try:
+                await self._tick_task
+            except asyncio.CancelledError:
+                pass
+        if self._tick_tasks:
+            for task in self._tick_tasks.values():
+                task.cancel()
+            await asyncio.gather(*self._tick_tasks.values(), return_exceptions=True)
+            self._tick_tasks.clear()
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
+        # Close all client connections
+        for client_info in self.clients.values():
+            await client_info["websocket"].close()
+        self.clients.clear()
+        self.agent_sessions.clear()
+        self._disconnected_sessions.clear()
+        print("Agent service stopped")
+        
+    async def _handle_connection(self, websocket: WebSocketServerProtocol) -> None:
+        """Handle a new WebSocket connection."""
+        agent_id = None
+        client_info: Optional[Dict] = None
+        try:
+            async for message in websocket:
+                # A single malformed message must not tear down the connection;
+                # report a protocol error and keep serving the client.
+                try:
+                    msg = parse_message(message)
+                except Exception as e:
+                    err = make_error("PROTOCOL_ERROR", f"Invalid message: {e}")
+                    await websocket.send(serialize_message(err))
+                    continue
+
+                if isinstance(msg, Hello):
+                    if client_info is not None:
+                        err = make_error("PROTOCOL_ERROR", "Hello may only be sent once per connection")
+                        await websocket.send(serialize_message(err))
+                        await websocket.close()
+                        break
+                    agent_id = msg.agent_id
+                    client_info = await self._handle_hello(websocket, msg)
+                elif client_info is not None and agent_id:
+                    if self.clients.get(agent_id) is not client_info:
+                        await websocket.close(code=1000, reason="Connection superseded")
+                        break
+                    await self._route_message(client_info, msg)
+                else:
+                    # No handshake yet
+                    err = make_error("PROTOCOL_ERROR", "Expected Hello message first")
+                    await websocket.send(serialize_message(err))
+                    
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        except Exception as e:
+            print(f"Connection error: {e}")
+        finally:
+            self._unregister_disconnected_client(agent_id, websocket, client_info)
+
+    def _unregister_disconnected_client(
+        self,
+        agent_id: Optional[str],
+        websocket: WebSocketServerProtocol,
+        client_info: Optional[Dict],
+    ) -> None:
+        if not agent_id:
+            return
+        registered_client = self.clients.get(agent_id)
+        if (
+            registered_client is None
+            or registered_client.get("websocket") is not websocket
+            or (client_info is not None and registered_client is not client_info)
+        ):
+            return
+        del self.clients[agent_id]
+        session_key = registered_client.get("session_key")
+        if session_key in self.agent_sessions:
+            self._disconnected_sessions[session_key] = time.monotonic()
+
+    def _displace_previous_session(self, agent_id: str, new_session_key: str) -> None:
+        """Mark a replaced session disconnected so TTL cleanup can evict it.
+
+        When a new run for the same agent registers before the old socket
+        closes, the old socket's finalizer sees a different registered client
+        and returns early. Without this, the displaced MockAgent would stay in
+        ``agent_sessions`` forever.
+        """
+        previous_client = self.clients.get(agent_id)
+        if previous_client is None:
+            return
+        previous_session_key = previous_client.get("session_key")
+        if (
+            previous_session_key
+            and previous_session_key != new_session_key
+            and previous_session_key in self.agent_sessions
+        ):
+            self._disconnected_sessions[previous_session_key] = time.monotonic()
+
+    def _expire_disconnected_sessions(self, now: Optional[float] = None) -> None:
+        current_time = time.monotonic() if now is None else now
+        expired_keys = [
+            key
+            for key, disconnected_at in self._disconnected_sessions.items()
+            if current_time - disconnected_at >= self.session_ttl_s
+        ]
+        for key in expired_keys:
+            self._disconnected_sessions.pop(key, None)
+            self.agent_sessions.pop(key, None)
+                
+    async def _handle_hello(self, websocket: WebSocketServerProtocol, hello: Hello) -> Optional[Dict]:
+        """Process Hello handshake."""
+        self._expire_disconnected_sessions()
+        if hello.protocol_version != PROTOCOL_VERSION:
+            err = make_error("PROTOCOL_MISMATCH", f"Expected {PROTOCOL_VERSION}, got {hello.protocol_version}")
+            await websocket.send(serialize_message(err))
+            await websocket.close()
+            return None
+            
+        agent_id = hello.agent_id
+        # Use run_id from client's Hello message (generated by Room with timestamp+random)
+        client_run_id = hello.run_id
+        session_key = f"{agent_id}:{client_run_id}"
+        
+        # Create correlation context
+        correlation = CorrelationContext(
+            experiment_id=self.experiment_id,
+            scenario_id=self.scenario_id,
+            scenario_version=self.scenario_version,
+            run_id=client_run_id,
+            agent_id=agent_id,
+            # Acknowledgments cannot borrow revision state from another run or
+            # client. The agent waits for this session's first WorldState.
+            world_revision=hello.correlation.world_revision,
+            simulation_tick=hello.correlation.simulation_tick,
+            simulation_time=hello.correlation.simulation_time,
+            trace_id=hello.correlation.trace_id or uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
+            component="agent",
+            component_version=PROTOCOL_VERSION,
+        )
+        
+        # Reuse the per-run agent state on reconnect so the target cursor and
+        # pending requests are preserved instead of restarting the sequence.
+        resuming = bool(hello.reconnect) and session_key in self.agent_sessions
+        if resuming:
+            mock_agent = self.agent_sessions[session_key]
+            mock_agent.send = lambda msg: websocket.send(msg)
+            mock_agent.correlation_base = correlation
+        else:
+            mock_agent = MockAgent(
+                agent_id=agent_id,
+                run_id=client_run_id,
+                experiment_id=self.experiment_id,
+                scenario_id=self.scenario_id,
+                scenario_version=self.scenario_version,
+                send_callback=lambda msg: websocket.send(msg),
+                correlation_base=correlation,
+                random_seed=hello.random_seed,
+            )
+            
+            # Set deterministic target sequence (matching room.gd)
+            target_ids = [
+                "obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"
+            ]
+            targets = [
+                {"target_id": "obj_nonexistent", "action_type": "touch"},
+                {"target_id": "", "action_type": "wait"},
+            ]
+            for tid in target_ids:
+                targets.append({"target_id": tid, "action_type": "move"})
+                is_first = (tid == "obj_wood_cube")
+                targets.append({"target_id": tid, "action_type": "touch", "interrupt_after": is_first})
+            mock_agent.set_targets(targets)
+            self.agent_sessions[session_key] = mock_agent
+
+        self._disconnected_sessions.pop(session_key, None)
+        
+        client_info = {
+            "websocket": websocket,
+            "mock_agent": mock_agent,
+            "correlation": correlation,
+            "session_key": session_key,
+        }
+        self._displace_previous_session(agent_id, session_key)
+        self.clients[agent_id] = client_info
+        
+        # Send HelloAck
+        ack = HelloAck(
+            protocol_version=PROTOCOL_VERSION,
+            server_id="agent-service-01",
+            accepted_capabilities=hello.capabilities,
+            initial_world_revision=hello.correlation.world_revision,
+            correlation=correlation
+        )
+        await websocket.send(serialize_message(ack))
+        
+        # Notify mock agent of handshake completion
+        await mock_agent.on_hello_ack(ack, resume=resuming)
+        return client_info
+        
+    @staticmethod
+    def _message_matches_session(client: Dict, msg) -> bool:
+        """Return True when msg belongs to the client's registered session.
+
+        World messages carry a top-level ``run_id`` and ``agent_id`` in addition
+        to a correlation block. A misconfigured or foreign world must not be
+        able to mutate this session's agent state (revisions, pending actions,
+        target cursor), so every identity field the message carries is checked.
+        """
+        correlation = client.get("correlation")
+        if correlation is None:
+            return True
+        msg_correlation = getattr(msg, "correlation", None)
+        if msg_correlation is not None:
+            if msg_correlation.run_id != correlation.run_id:
+                return False
+            if msg_correlation.experiment_id != correlation.experiment_id:
+                return False
+            if msg_correlation.scenario_id != correlation.scenario_id:
+                return False
+            if msg_correlation.scenario_version != correlation.scenario_version:
+                return False
+            if msg_correlation.agent_id != correlation.agent_id:
+                return False
+        msg_run_id = getattr(msg, "run_id", None)
+        if msg_run_id is not None and msg_run_id != correlation.run_id:
+            return False
+        msg_agent_id = getattr(msg, "agent_id", None)
+        if msg_agent_id is not None and msg_agent_id != correlation.agent_id:
+            return False
+        return True
+
+    async def _route_message(self, client: Dict, msg) -> None:
+        """Route incoming message to mock agent."""
+        if not self._message_matches_session(client, msg):
+            return
+
+        mock_agent = client["mock_agent"]
+        
+        # Route to mock agent
+        if isinstance(msg, WorldState):
+            await mock_agent.on_world_state(msg)
+        elif isinstance(msg, Observation):
+            await mock_agent.on_observation(msg)
+        elif isinstance(msg, Action):
+            # World sends ActionResult back as Action with result field
+            # Only process terminal results (not "pending" lifecycle messages from room.gd)
+            if msg.result is not None and msg.result != "pending":
+                await mock_agent.on_action_result(msg)
+        elif isinstance(msg, Intention):
+            # World sends Intention (touch/inspect) - treat as action request
+            await mock_agent.on_action_result(msg)  # Reuse same handler for now
+        elif isinstance(msg, Error):
+            await mock_agent.on_error(msg)
+            
+    async def _world_tick_loop(self) -> None:
+        """Process world state and issue actions for all connected agents."""
+        while self._running:
+            now = time.monotonic()
+            if now >= self._next_session_cleanup:
+                self._expire_disconnected_sessions(now)
+                self._next_session_cleanup = now + min(max(self.session_ttl_s, 0.1), 1.0)
+            self._schedule_client_ticks()
+            await asyncio.sleep(1.0 / 60.0)  # Run at 60Hz to match physics
+
+    def _schedule_client_ticks(self) -> None:
+        """Give every session its own tick progress.
+
+        A session can be waiting on simulated world progress before issuing
+        its next command. Awaiting all sessions together would make the
+        slowest one a barrier for everyone, so each session gets an independent
+        task and is skipped while its previous tick is still running.
+        """
+        for agent_id, client_info in list(self.clients.items()):
+            task = self._tick_tasks.get(agent_id)
+            if task is not None and not task.done():
+                continue
+            self._tick_tasks[agent_id] = asyncio.create_task(
+                self._tick_client(agent_id, client_info)
+            )
+        for agent_id in list(self._tick_tasks):
+            task = self._tick_tasks[agent_id]
+            if agent_id not in self.clients and task.done():
+                del self._tick_tasks[agent_id]
+
+    async def _tick_client(self, agent_id: str, client_info: Dict) -> None:
+        """Tick one session without letting its failure stop the others.
+
+        A socket can close while ``run_tick`` is sending a command, which
+        raises ``ConnectionClosed``. The global loop must keep ticking every
+        remaining (and future) session.
+        """
+        mock_agent = client_info["mock_agent"]
+        if not mock_agent.last_world_state:
+            return
+        try:
+            # Behavior timing comes from WorldState simulation ticks, so the
+            # service loop only decides when to give each session a chance to
+            # act; it does not supply a wall-clock delta.
+            await mock_agent.run_tick()
+        except Exception as exc:  # noqa: BLE001 - isolate a single client's failure
+            print(f"AgentService: tick failed for {agent_id}: {exc}")
+            
+    # Godot is authoritative for WorldState. Agent service receives WorldState
+    # via _route_message and forwards to MockAgent. No simulation here.
+
+
+async def main() -> None:
+    """Entry point for running the agent service."""
+    host = os.getenv("AGENT_SERVICE_HOST", "127.0.0.1")
+    port = int(os.getenv("AGENT_SERVICE_PORT", "8765"))
+    experiment_id = os.getenv("AGENT_EXPERIMENT_ID", "exp_autonomous_discovery_01")
+    scenario_id = os.getenv("AGENT_SCENARIO_ID", "first_benchmark_room")
+    scenario_version = os.getenv("AGENT_SCENARIO_VERSION", "1.0.0")
+    run_id = os.getenv("AGENT_RUN_ID", "run_001")
+    
+    service = AgentService(
+        host=host,
+        port=port,
+        experiment_id=experiment_id,
+        scenario_id=scenario_id,
+        scenario_version=scenario_version,
+        run_id=run_id,
+    )
+    
+    try:
+        await service.start()
+        # Keep running until interrupted
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await service.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

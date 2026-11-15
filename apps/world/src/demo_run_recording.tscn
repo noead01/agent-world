@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3 uid="d4e5f6a7b8c9d0e1"]
+
+[ext_resource path="res://src/demo_run_recording.gd" type="Script" id=1]
+[ext_resource path="res://src/agent.gd" type="Script" id=2]
+[ext_resource path="res://src/event_recorder.gd" type="Script" id=3]
+[ext_resource path="res://src/simulation_time.gd" type="Script" id=4]
+[ext_resource path="res://src/rigid_object.gd" type="Script" id=5]
+
+[node name="DemoRunRecording" type="Node3D"]
+script = ExtResource(1)
+demo_duration = 10.0
+show_hud = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+current = true
+position = Vector3(0, 10, -24)
+rotation_degrees = Vector3(-18, 0, 0)
+
+[node name="DemoLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-45, -30, 0)

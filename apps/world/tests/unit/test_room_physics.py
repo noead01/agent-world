@@ -130,5 +130,43 @@ class JoltPhysicsConfigured(unittest.TestCase):
         self.assertIn("default_gravity", content)
 
 
+class RoomHasEventRecorder(unittest.TestCase):
+    """The room must integrate EventRecorder for domain event capture."""
+
+    def test_room_has_event_recorder(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        assert "EventRecorder" in content
+        assert "event_recorder" in content.lower()
+        assert "_event_recorder" in content or "event_recorder" in content
+        assert "start_run" in content
+        assert "append_event" in content
+        assert "end_run" in content
+
+
+class RoomRequiresAgentSession(unittest.TestCase):
+    """A run without a completed agent handshake must not be valid."""
+
+    def test_unestablished_session_invalidates_run(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("_agent_session_established", content)
+        self.assertIn(
+            "ws_client.connected.connect(_on_agent_session_connected)", content
+        )
+        self.assertIn(
+            'fail_run("Agent session was never established")', content
+        )
+
+    def test_session_lost_at_run_end_invalidates_run(self):
+        content = load_text(os.path.join(SRC_DIR, "room.gd"))
+        self.assertIn("_agent_session_connected", content)
+        self.assertIn(
+            "ws_client.disconnected.connect(_on_agent_session_disconnected)", content
+        )
+        self.assertIn("func _on_agent_session_disconnected", content)
+        self.assertIn(
+            'fail_run("Agent session was disconnected before run end")', content
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

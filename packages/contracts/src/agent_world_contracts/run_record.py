@@ -71,11 +71,23 @@ class RunRecord:
         events_path = run_path / "events.jsonl"
         if not events_path.is_file():
             raise FileNotFoundError(f"events.jsonl not found in {run_dir}")
+        load_errors: List[str] = []
         with open(events_path) as f:
-            for line in f:
+            for i, line in enumerate(f):
                 line = line.strip()
-                if line:
-                    events.append(json.loads(line))
+                if not line:
+                    continue
+                try:
+                    parsed = json.loads(line)
+                except json.JSONDecodeError as e:
+                    load_errors.append(f"events.jsonl line {i}: invalid JSON: {e}")
+                    continue
+                if not isinstance(parsed, dict):
+                    load_errors.append(
+                        f"events.jsonl line {i}: expected JSON object, got {type(parsed).__name__}"
+                    )
+                    continue
+                events.append(parsed)
         
         # Load validity history
         validity_history = []
@@ -83,20 +95,31 @@ class RunRecord:
         if not validity_path.is_file():
             raise FileNotFoundError(f"validity.jsonl not found in {run_dir}")
         with open(validity_path) as f:
-            for line in f:
+            for i, line in enumerate(f):
                 line = line.strip()
-                if line:
-                    validity_history.append(json.loads(line))
+                if not line:
+                    continue
+                try:
+                    parsed = json.loads(line)
+                except json.JSONDecodeError as e:
+                    load_errors.append(f"validity.jsonl line {i}: invalid JSON: {e}")
+                    continue
+                if not isinstance(parsed, dict):
+                    load_errors.append(
+                        f"validity.jsonl line {i}: expected JSON object, got {type(parsed).__name__}"
+                    )
+                    continue
+                validity_history.append(parsed)
         
         # ``run.schema.json`` marks instance-level metadata optional so a run
         # template can validate without a concrete execution. This loader still
         # needs those fields, so report their absence as validation diagnostics
         # instead of raising ``KeyError`` on a schema-valid record.
-        load_errors: List[str] = []
+        instance_load_errors: List[str] = []
 
         def instance_field(name: str, default: Any) -> Any:
             if name not in run_meta:
-                load_errors.append(
+                instance_load_errors.append(
                     f"Run metadata is missing required instance field {name!r}"
                 )
                 return default
@@ -117,7 +140,7 @@ class RunRecord:
             validity_history=validity_history,
             run_dir=str(run_path),
             _raw_run_metadata=run_meta,
-            _load_errors=load_errors,
+            _load_errors=load_errors + instance_load_errors,
         )
     
     def validate(self) -> List[str]:

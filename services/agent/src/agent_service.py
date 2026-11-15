@@ -283,8 +283,17 @@ class AgentService:
         if correlation is None:
             return True
         msg_correlation = getattr(msg, "correlation", None)
-        if msg_correlation is not None and msg_correlation.run_id != correlation.run_id:
-            return False
+        if msg_correlation is not None:
+            if msg_correlation.run_id != correlation.run_id:
+                return False
+            if msg_correlation.experiment_id != correlation.experiment_id:
+                return False
+            if msg_correlation.scenario_id != correlation.scenario_id:
+                return False
+            if msg_correlation.scenario_version != correlation.scenario_version:
+                return False
+            if msg_correlation.agent_id != correlation.agent_id:
+                return False
         msg_run_id = getattr(msg, "run_id", None)
         if msg_run_id is not None and msg_run_id != correlation.run_id:
             return False

@@ -314,6 +314,25 @@ def test_load_diagnoses_missing_optional_instance_fields():
         )
 
 
+def test_load_diagnoses_non_object_jsonl_entries():
+    """JSONL lines that are not objects must be diagnosed, not raise later."""
+    with tempfile.TemporaryDirectory() as run_dir:
+        with open(os.path.join(run_dir, "run.json"), "w") as f:
+            json.dump(
+                {"id": "run_bad", "scenario_id": "test", "version": "1.0.0"}, f
+            )
+        with open(os.path.join(run_dir, "events.jsonl"), "w") as f:
+            f.write('[]\n')
+        with open(os.path.join(run_dir, "validity.jsonl"), "w") as f:
+            f.write('null\n')
+
+        record = RunRecord.load(run_dir)
+        errors = record.validate()
+
+    assert any("expected JSON object, got list" in error for error in errors)
+    assert any("expected JSON object, got NoneType" in error for error in errors)
+
+
 if __name__ == "__main__":
     test_load_run_record()
     test_validate_run_record()

@@ -23,7 +23,7 @@ def _correlation(run_id="run_test", agent_id="agent_test"):
     )
 
 
-def _world_state(run_id="run_test", agent_id="agent_test"):
+def _world_state(run_id="run_test", agent_id="agent_test", correlation=None):
     return WorldState(
         world_revision=1,
         simulation_tick=1,
@@ -32,7 +32,7 @@ def _world_state(run_id="run_test", agent_id="agent_test"):
         agent_position={"x": 0.0, "y": 0.0, "z": 0.0},
         agent_heading_radians=0.0,
         nearby_objects=[],
-        correlation=_correlation(run_id, agent_id),
+        correlation=correlation or _correlation(run_id, agent_id),
     )
 
 
@@ -157,6 +157,59 @@ class AgentServiceRoutingTests(unittest.IsolatedAsyncioTestCase):
         await service._route_message(client, _action())
 
         mock_agent.on_action_result.assert_awaited_once()
+
+    async def test_world_state_with_mismatched_correlation_experiment_id_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        # Correlation experiment_id differs from registered session
+        foreign_corr = _correlation()
+        foreign_corr.experiment_id = "exp_foreign"
+        await service._route_message(
+            client, _world_state(correlation=foreign_corr)
+        )
+
+        mock_agent.on_world_state.assert_not_awaited()
+
+    async def test_world_state_with_mismatched_correlation_scenario_id_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        foreign_corr = _correlation()
+        foreign_corr.scenario_id = "scenario_foreign"
+        await service._route_message(
+            client, _world_state(correlation=foreign_corr)
+        )
+
+        mock_agent.on_world_state.assert_not_awaited()
+
+    async def test_world_state_with_mismatched_correlation_scenario_version_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        foreign_corr = _correlation()
+        foreign_corr.scenario_version = "2.0.0"
+        await service._route_message(
+            client, _world_state(correlation=foreign_corr)
+        )
+
+        mock_agent.on_world_state.assert_not_awaited()
+
+    async def test_world_state_with_mismatched_correlation_agent_id_is_ignored(self):
+        service = AgentService()
+        mock_agent = AsyncMock()
+        client = {"mock_agent": mock_agent, "correlation": _correlation()}
+
+        foreign_corr = _correlation()
+        foreign_corr.agent_id = "agent_foreign"
+        await service._route_message(
+            client, _world_state(correlation=foreign_corr)
+        )
+
+        mock_agent.on_world_state.assert_not_awaited()
 
     async def test_replacement_run_marks_displaced_session_disconnected(self):
         service = AgentService(session_ttl_s=10)

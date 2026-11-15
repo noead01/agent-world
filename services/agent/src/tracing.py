@@ -115,6 +115,26 @@ def span_attributes_from_correlation(correlation: CorrelationContext) -> dict:
     }
 
 
+def span_context_from_correlation(correlation: CorrelationContext) -> trace.SpanContext:
+    """Reconstruct a remote SpanContext from correlation for proper trace propagation.
+
+    Returns an invalid SpanContext when trace_id or span_id are missing, so callers can
+    detect when trace context cannot be established.
+    """
+    trace_id_str = correlation.trace_id or ""
+    span_id_str = correlation.span_id or ""
+    if not trace_id_str or not span_id_str:
+        return trace.INVALID_SPAN.get_span_context()
+    try:
+        return trace.SpanContext(
+            trace_id=int(trace_id_str, 16),
+            span_id=int(span_id_str, 16),
+            is_remote=True,
+        )
+    except ValueError:
+        return trace.INVALID_SPAN.get_span_context()
+
+
 def start_span(
     name: str,
     correlation: Optional[CorrelationContext] = None,

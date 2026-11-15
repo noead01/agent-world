@@ -55,14 +55,6 @@ func _on_disconnected(reason: String) -> void:
 
 func _on_message_received(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
-	# Extract trace context from incoming correlation for span propagation.
-	var incoming_correlation = msg.get("correlation")
-	if incoming_correlation is Dictionary:
-		var incoming_trace_id = incoming_correlation.get("trace_id", "")
-		var incoming_span_id = incoming_correlation.get("span_id", "")
-		if incoming_trace_id != "":
-			_trace_id = incoming_trace_id
-
 	match msg_type:
 		"HelloAck":
 			_on_hello_ack(msg)
@@ -81,14 +73,34 @@ func _on_message_received(msg: Dictionary) -> void:
 				if identity_error != "":
 					invalid_command_rejected.emit(String(msg.get("id", "")), identity_error)
 					return
+				# Session validated: now safe to adopt trace context from this message.
+				_adopt_trace_context(msg)
 				_on_action_result(msg)
 			else:
 				# This is an Action command from the agent service (result="pending" or missing)
+				var identity_error := _validate_session_identity(msg)
+				if identity_error != "":
+					invalid_command_rejected.emit(String(msg.get("id", "")), identity_error)
+					return
+				# Session validated: now safe to adopt trace context.
+				_adopt_trace_context(msg)
 				_on_action_received(msg)
 		"Intention":
 			# Intention from agent service - treat as action command for touch/inspect
+			var identity_error := _validate_session_identity(msg)
+			if identity_error != "":
+				invalid_command_rejected.emit(String(msg.get("id", "")), identity_error)
+				return
+			# Session validated: now safe to adopt trace context.
+			_adopt_trace_context(msg)
 			_on_action_received(msg)
 		"Error":
+			# Validate session before adopting trace context (especially for STALE_REVISION).
+			var identity_error := _validate_session_identity(msg)
+			if identity_error != "":
+				invalid_command_rejected.emit(String(msg.get("id", "")), identity_error)
+				return
+			_adopt_trace_context(msg)
 			_on_error(msg)
 		"Observation":
 			observation_ready.emit(msg)
@@ -99,6 +111,28 @@ func _on_message_received(msg: Dictionary) -> void:
 	if msg.has("correlation"):
 		var corr = msg["correlation"]
 		print("MSG_JSON: %s" % [JSON.stringify(msg)])
+
+func _adopt_trace_context(msg: Dictionary) -> void:
+	# Safely adopt trace_id/span_id from a validated message's correlation.
+	# Validates format before storing to avoid poisoning the session trace.
+	var incoming_correlation = msg.get("correlation")
+	if not incoming_correlation is Dictionary:
+		return
+	var incoming_trace_id = incoming_correlation.get("trace_id", "")
+	var incoming_span_id = incoming_correlation.get("span_id", "")
+	if incoming_trace_id != "" and _is_valid_hex_string(incoming_trace_id, 32):
+		_trace_id = incoming_trace_id
+	if incoming_span_id != "" and _is_valid_hex_string(incoming_span_id, 16):
+		# span_id is not stored globally but used for outgoing spans
+		pass
+
+func _is_valid_hex_string(s: String, expected_length: int) -> bool:
+	if s.length() != expected_length:
+		return false
+	for c in s:
+		if not (c >= "0" and c <= "9") and not (c >= "a" and c <= "f") and not (c >= "A" and c <= "F"):
+			return false
+	return true
 
 func _on_hello_ack(msg: Dictionary) -> void:
 	var correlation = msg.get("correlation", {})
@@ -240,7 +274,34 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 	if not _websocket_client:
 		return
 		
+	# Trace: world.perception.collect (collecting nearby objects, agent state)
+	var collect_span = _trace.start_span(
+		_trace_template.SPAN_PERCEPTION_COLLECT,
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, agent_id,
+			_current_world_revision, _current_simulation_tick,
+			_current_simulation_time, "world", "1.0.0",
+		),
+	)
+	
 	var correlation = _make_correlation()
+	
+	# Trace: world.observation.publish (publishing WorldState)
+	var publish_span = _trace.start_span(
+		_trace_template.SPAN_OBSERVATION_PUBLISH,
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, agent_id,
+			_current_world_revision, _current_simulation_tick,
+			_current_simulation_time, "world", "1.0.0",
+		),
+	)
+	
+	# Update correlation with the publish span's trace context
+	correlation["trace_id"] = publish_span.get("trace_id", "")
+	correlation["span_id"] = publish_span.get("span_id", "")
+	
 	var state = {
 		"type": "WorldState",
 		"world_revision": _current_world_revision,
@@ -254,13 +315,14 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 	}
 	_websocket_client.send_message(state)
 	print("MSG_JSON: %s" % [JSON.stringify(state)])
+	
+	_trace.end_span(collect_span)
+	_trace.end_span(publish_span)
 
 func send_observation(observation: Dictionary) -> void:
 	var msg = observation.duplicate()
-	msg["correlation"] = _make_correlation()
-	_websocket_client.send_message(msg)
-	observation_ready.emit(msg)
-	# Trace: world.observation.publish
+	# Start the publish span BEFORE creating correlation, so the span ID
+	# matches the outgoing message's correlation.
 	var span = _trace.start_span(
 		_trace_template.SPAN_OBSERVATION_PUBLISH,
 		{},
@@ -270,18 +332,17 @@ func send_observation(observation: Dictionary) -> void:
 			_current_simulation_time, "world", "1.0.0",
 		),
 	)
+	var correlation = _make_correlation()
+	correlation["trace_id"] = span.get("trace_id", "")
+	correlation["span_id"] = span.get("span_id", "")
+	msg["correlation"] = correlation
+	_websocket_client.send_message(msg)
+	observation_ready.emit(msg)
 	_trace.end_span(span)
 
 func send_intention(intention: Dictionary) -> void:
 	var msg = intention.duplicate()
-	var correlation = _make_correlation()
-	msg["correlation"] = correlation
-	msg["request_world_revision"] = _current_world_revision
-	_pending_requests[msg["id"]] = {"type": "intention", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
-	_websocket_client.send_message(msg)
-	intention_sent.emit(msg)
-	print("MSG_JSON: %s" % [JSON.stringify(msg)])
-	# Trace: world.action.execute (intention is an action)
+	# Start the action execute span BEFORE creating correlation.
 	var span = _trace.start_span(
 		_trace_template.SPAN_ACTION_EXECUTE,
 		{},
@@ -291,11 +352,32 @@ func send_intention(intention: Dictionary) -> void:
 			_current_simulation_time, "world", "1.0.0",
 		),
 	)
+	var correlation = _make_correlation()
+	correlation["trace_id"] = span.get("trace_id", "")
+	correlation["span_id"] = span.get("span_id", "")
+	msg["correlation"] = correlation
+	msg["request_world_revision"] = _current_world_revision
+	_pending_requests[msg["id"]] = {"type": "intention", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
+	_websocket_client.send_message(msg)
+	intention_sent.emit(msg)
+	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 	_trace.end_span(span)
 
 func send_action(action: Dictionary) -> void:
 	var msg = action.duplicate()
+	# Start the action execute span BEFORE creating correlation.
+	var span = _trace.start_span(
+		_trace_template.SPAN_ACTION_EXECUTE,
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, agent_id,
+			_current_world_revision, _current_simulation_tick,
+			_current_simulation_time, "world", "1.0.0",
+		),
+	)
 	var correlation = _make_correlation()
+	correlation["trace_id"] = span.get("trace_id", "")
+	correlation["span_id"] = span.get("span_id", "")
 	msg["correlation"] = correlation
 	msg["request_world_revision"] = _current_world_revision
 	_pending_requests[msg["id"]] = {"type": "action", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
@@ -303,16 +385,6 @@ func send_action(action: Dictionary) -> void:
 		_received_commands[msg["id"]]["terminal_result"] = msg.duplicate(true)
 	_websocket_client.send_message(msg)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
-	# Trace: world.action.execute
-	var span = _trace.start_span(
-		_trace_template.SPAN_ACTION_EXECUTE,
-		{},
-		_trace.bounded_attributes(
-			experiment_id, scenario_id, scenario_version, agent_id,
-			_current_world_revision, _current_simulation_tick,
-			_current_simulation_time, "world", "1.0.0",
-		),
-	)
 	_trace.end_span(span)
 
 func _make_correlation() -> Dictionary:

@@ -64,6 +64,7 @@ var _protocol_handler_template = preload("res://src/protocol_handler.gd")
 var _event_recorder_template = preload("res://src/event_recorder.gd")
 var _event_recorder
 var _active_action_context: Dictionary = {}
+var _active_action_spans: Dictionary = {}  # command_id -> span
 var _agent_session_established: bool = false
 var _agent_session_connected: bool = false
 
@@ -503,8 +504,11 @@ func _on_action_received(action: Dictionary) -> void:
 				_world_revision, 0, 0.0, "world", "1.0.0",
 			),
 		)
-		_agent.execute_action(action_type, target_id, action.get("id", ""))
-		_trace.end_span(span)
+		var command_id = action.get("id", "")
+		if command_id != "":
+			_active_action_spans[command_id] = span
+		_agent.execute_action(action_type, target_id, command_id)
+		# Do NOT end span here; it will be ended in the lifecycle handler.
 
 func _on_action_result(result: Dictionary) -> void:
 	# ActionResult received (response to action we sent) - currently not used since agent service drives actions
@@ -567,6 +571,11 @@ func _take_action_context(action_type_id: String, command_id: String) -> Diction
 
 func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
+	# End the execution span for this action.
+	var span = _active_action_spans.get(command_id)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -593,6 +602,11 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 
 func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
+	# End the execution span for this action.
+	var span = _active_action_spans.get(command_id)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -619,6 +633,11 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 
 func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
+	# End the execution span for this action.
+	var span = _active_action_spans.get(command_id)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",

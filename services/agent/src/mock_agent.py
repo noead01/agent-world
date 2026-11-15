@@ -14,6 +14,7 @@ from .protocol import serialize_message, PROTOCOL_VERSION
 from .tracing import (
     start_span,
     span_attributes_from_correlation,
+    span_context_from_correlation,
     SPAN_DELIBERATION_REQUEST,
     SPAN_INTENTION_VALIDATE,
     SPAN_ARBITRATION_SELECT,
@@ -250,9 +251,22 @@ class MockAgent:
         if self._awaiting_world_state:
             return
 
+        # Reconstruct the parent span context from the correlation base so
+        # deliberation traces are children of the world trace that sent the
+        # WorldState. If correlation lacks trace_id/span_id, a new trace is
+        # started (fails open for telemetry).
+        parent_span_ctx = span_context_from_correlation(self.correlation_base)
+        if parent_span_ctx.is_valid:
+            parent_context = trace.set_span_in_context(
+                trace.NonRecordingSpan(parent_span_ctx)
+            )
+        else:
+            parent_context = None
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(
             SPAN_DELIBERATION_REQUEST,
+            context=parent_context,
             attributes=span_attributes_from_correlation(self.correlation_base),
         ):
             # Serve an artificial delay once simulated time has advanced far enough.

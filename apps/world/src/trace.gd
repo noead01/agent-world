@@ -94,6 +94,13 @@ func span_to_correlation_fields(span: Dictionary) -> Dictionary:
 		"span_id": span.get("span_id", ""),
 	}
 
+# Build a full correlation dictionary from a span, for outbound messages.
+func span_to_correlation(span: Dictionary) -> Dictionary:
+	return {
+		"trace_id": span.get("trace_id", ""),
+		"span_id": span.get("span_id", ""),
+	}
+
 # Build bounded span attributes from world correlation data. run_id is
 # intentionally excluded (high cardinality); it stays in the correlation
 # envelope.

@@ -30,6 +30,7 @@ from src.tracing import (
     start_span,
     TRACE_ID_ATTR,
     SPAN_ID_ATTR,
+    span_context_from_correlation,
 )
 from src.schemas import CorrelationContext
 
@@ -159,6 +160,55 @@ class TestTraceContextPropagation(unittest.TestCase):
             self.assertEqual(format(ctx.trace_id, "032x"), "01" * 16)
             # Span context is valid (not INVALID_SPAN).
             self.assertTrue(ctx.is_valid)
+
+
+class TestSpanContextReconstruction(unittest.TestCase):
+    """Agent service must reconstruct SpanContext from correlation for proper propagation."""
+
+    @unittest.skipIf(trace is None, "opentelemetry not installed")
+    def test_span_context_from_correlation(self):
+        """Correlation trace_id/span_id must be convertible to a remote SpanContext."""
+        init_tracing()
+        corr = CorrelationContext(
+            experiment_id="exp_test",
+            scenario_id="scenario_test",
+            scenario_version="1.0.0",
+            run_id="run_test",
+            agent_id="agent_test",
+            world_revision=1,
+            simulation_tick=42,
+            simulation_time=0.7,
+            trace_id="01" * 16,
+            span_id="02" * 8,
+            component="world",
+            component_version="1.0.0",
+        )
+        span_ctx = span_context_from_correlation(corr)
+        self.assertIsInstance(span_ctx, trace.SpanContext)
+        self.assertEqual(format(span_ctx.trace_id, "032x"), "01" * 16)
+        self.assertEqual(format(span_ctx.span_id, "016x"), "02" * 8)
+        self.assertTrue(span_ctx.is_remote)
+
+    @unittest.skipIf(trace is None, "opentelemetry not installed")
+    def test_span_context_from_correlation_missing_ids_returns_invalid(self):
+        """Missing trace_id/span_id should yield an invalid SpanContext."""
+        init_tracing()
+        corr = CorrelationContext(
+            experiment_id="exp_test",
+            scenario_id="scenario_test",
+            scenario_version="1.0.0",
+            run_id="run_test",
+            agent_id="agent_test",
+            world_revision=1,
+            simulation_tick=42,
+            simulation_time=0.7,
+            trace_id=None,
+            span_id=None,
+            component="world",
+            component_version="1.0.0",
+        )
+        span_ctx = span_context_from_correlation(corr)
+        self.assertFalse(span_ctx.is_valid)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ var fixed_timestep_hz: float = 60.0
 
 var objects: Array = []
 var _sim_time_template = preload("res://src/simulation_time.gd")
+var _trace_template = preload("res://src/trace.gd")
 var _sim_time
 var _light: DirectionalLight3D
 var _last_light_hour: float = -1.0
@@ -42,6 +43,7 @@ var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
 var _demo_step: int = 0
 var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
 var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
+var _trace
 
 # External agent-service behavior policy, mirrored by services/agent. The
 # configuration fingerprint must cover it: world-side settings alone cannot
@@ -62,6 +64,7 @@ var _protocol_handler_template = preload("res://src/protocol_handler.gd")
 var _event_recorder_template = preload("res://src/event_recorder.gd")
 var _event_recorder
 var _active_action_context: Dictionary = {}
+var _active_action_spans: Dictionary = {}  # command_id -> span
 var _agent_session_established: bool = false
 var _agent_session_connected: bool = false
 
@@ -170,6 +173,9 @@ func _ready() -> void:
 	# Store references
 	_ws_client = ws_client
 	_protocol_handler = protocol_handler
+
+	# Trace context for the world runtime.
+	_trace = _trace_template.new()
 
 	# Connect ProtocolHandler signals
 	_protocol_handler.action_received.connect(_on_action_received)
@@ -483,7 +489,26 @@ func _on_action_received(action: Dictionary) -> void:
 		var target_id = action.get("target_instance_id", "")
 		# Preserve the command id so terminal results can be correlated with the
 		# exact request the agent service is waiting on.
-		_agent.execute_action(action_type, target_id, action.get("id", ""))
+
+		# Trace: world.action.execute (world executing an agent-service command)
+		var action_correlation = action.get("correlation", {})
+		var span = _trace.start_span(
+			_trace_template.SPAN_ACTION_EXECUTE,
+			{
+				"trace_id": action_correlation.get("trace_id", ""),
+				"span_id": action_correlation.get("span_id", ""),
+			},
+			_trace.bounded_attributes(
+				_protocol_handler.experiment_id, _protocol_handler.scenario_id,
+				_protocol_handler.scenario_version, _protocol_handler.agent_id,
+				_world_revision, 0, 0.0, "world", "1.0.0",
+			),
+		)
+		var command_id = action.get("id", "")
+		if command_id != "":
+			_active_action_spans[command_id] = span
+		_agent.execute_action(action_type, target_id, command_id)
+		# Do NOT end span here; it will be ended in the lifecycle handler.
 
 func _on_action_result(result: Dictionary) -> void:
 	# ActionResult received (response to action we sent) - currently not used since agent service drives actions
@@ -546,6 +571,8 @@ func _take_action_context(action_type_id: String, command_id: String) -> Diction
 
 func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
+	# Get the execution span for this action (will end it after sending result).
+	var span = _active_action_spans.get(command_id)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -559,9 +586,14 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 			"parameters": {},
 			"intention_id": "",
 			"result": result,
-			"correlation": _protocol_handler._make_correlation(),
+			"correlation": {},  # Will be filled by send_terminal_result
 		}
-		_protocol_handler.send_action(action)
+		# Send terminal result using the execution span as parent trace context.
+		_protocol_handler.send_terminal_result(action, span)
+	# Now end the execution span - it contains both the action execution AND its result publication.
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	
 	_append_domain_event("agent_action_completed", context["target_instance_id"], {
 		"action_type": action_type_id,
@@ -572,6 +604,7 @@ func _on_agent_action_completed(action_type_id: String, result: String, command_
 
 func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
+	var span = _active_action_spans.get(command_id)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -585,9 +618,12 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 			"parameters": {},
 			"intention_id": "",
 			"result": "failure",
-			"correlation": _protocol_handler._make_correlation(),
+			"correlation": {},
 		}
-		_protocol_handler.send_action(action)
+		_protocol_handler.send_terminal_result(action, span)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	
 	_append_domain_event("agent_action_failed", context["target_instance_id"], {
 		"action_type": action_type_id,
@@ -598,6 +634,7 @@ func _on_agent_action_failed(action_type_id: String, reason: String, command_id:
 
 func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
 	var context = _take_action_context(action_type_id, command_id)
+	var span = _active_action_spans.get(command_id)
 	if _protocol_handler:
 		var action = {
 			"type": "Action",
@@ -611,9 +648,12 @@ func _on_agent_action_interrupted(action_type_id: String, command_id: String) ->
 			"parameters": {},
 			"intention_id": "",
 			"result": "failure",
-			"correlation": _protocol_handler._make_correlation(),
+			"correlation": {},
 		}
-		_protocol_handler.send_action(action)
+		_protocol_handler.send_terminal_result(action, span)
+	if span:
+		_active_action_spans.erase(command_id)
+		_trace.end_span(span)
 	
 	_append_domain_event("agent_action_interrupted", context["target_instance_id"], {
 		"action_type": action_type_id,

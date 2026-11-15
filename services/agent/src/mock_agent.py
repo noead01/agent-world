@@ -4,10 +4,25 @@ import random
 import time
 import uuid
 from typing import Callable, Awaitable, Dict, Any, List, Optional
+
+from opentelemetry import trace
+
 from .schemas import (
     Intention, Action, WorldState, Observation, CorrelationContext, Hello, HelloAck, Error
 )
 from .protocol import serialize_message, PROTOCOL_VERSION
+from .tracing import (
+    start_span,
+    span_attributes_from_correlation,
+    span_context_from_correlation,
+    SPAN_DELIBERATION_REQUEST,
+    SPAN_INTENTION_VALIDATE,
+    SPAN_ARBITRATION_SELECT,
+    SPAN_ACTION_EXECUTE,
+    ACTION_TYPE_ATTR,
+    RESULT_ATTR,
+    INTENTION_TYPE_ATTR,
+)
 
 
 class MockAgent:
@@ -265,19 +280,55 @@ class MockAgent:
                 and self.targets[self.current_target_index].get("interrupt_after", False)
                 and self.last_world_state
             ):
-                await self._issue_next_action(
-                    self.last_world_state.world_revision,
-                    self.last_world_state.simulation_tick,
-                    self.last_world_state.simulation_time,
-                )
+                # Reconstruct the parent span context from the correlation base so
+                # deliberation traces are children of the world trace that sent the
+                # WorldState. If correlation lacks trace_id/span_id, a new trace is
+                # started (fails open for telemetry).
+                parent_span_ctx = span_context_from_correlation(self.correlation_base)
+                if parent_span_ctx.is_valid:
+                    parent_context = trace.set_span_in_context(
+                        trace.NonRecordingSpan(parent_span_ctx)
+                    )
+                else:
+                    parent_context = None
+
+                tracer = trace.get_tracer(__name__)
+                with tracer.start_as_current_span(
+                    SPAN_DELIBERATION_REQUEST,
+                    context=parent_context,
+                    attributes=span_attributes_from_correlation(self.correlation_base),
+                ):
+                    await self._issue_next_action(
+                        self.last_world_state.world_revision,
+                        self.last_world_state.simulation_tick,
+                        self.last_world_state.simulation_time,
+                    )
             return
 
         if self.current_target_index < len(self.targets) and self.last_world_state:
-            await self._issue_next_action(
-                self.last_world_state.world_revision,
-                self.last_world_state.simulation_tick,
-                self.last_world_state.simulation_time
-            )
+            # Reconstruct the parent span context from the correlation base so
+            # deliberation traces are children of the world trace that sent the
+            # WorldState. If correlation lacks trace_id/span_id, a new trace is
+            # started (fails open for telemetry).
+            parent_span_ctx = span_context_from_correlation(self.correlation_base)
+            if parent_span_ctx.is_valid:
+                parent_context = trace.set_span_in_context(
+                    trace.NonRecordingSpan(parent_span_ctx)
+                )
+            else:
+                parent_context = None
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                SPAN_DELIBERATION_REQUEST,
+                context=parent_context,
+                attributes=span_attributes_from_correlation(self.correlation_base),
+            ):
+                await self._issue_next_action(
+                    self.last_world_state.world_revision,
+                    self.last_world_state.simulation_tick,
+                    self.last_world_state.simulation_time
+                )
     
     async def _issue_next_action(
         self,
@@ -316,81 +367,118 @@ class MockAgent:
             }
             return
 
-        message_id = None
-        if action_type in ["touch", "inspect"]:
-            intention = Intention(
-                id=f"int_{uuid.uuid4().hex[:12]}",
-                run_id=self.run_id,
-                agent_id=self.agent_id,
-                timestamp_s=simulation_time,
-                version=PROTOCOL_VERSION,
-                intention_type_id=action_type,
-                target_instance_id=target_id,
-                target_type_id=None,
-                thought=f"Mock agent {action_type}ing {target_id}",
-                goal=f"Test {action_type}",
-                status="formed",
-                correlation=correlation,
-                request_world_revision=world_revision
-            )
-            message_id = intention.id
-            payload = serialize_message(intention)
-            self.pending_requests[message_id] = {
-                "type": "intention", "timestamp": time.time(),
-                "target_index": target_index, "payload": payload,
-            }
-            await self.send(payload)
+        tracer = trace.get_tracer(__name__)
 
-        elif action_type == "move":
-            action = Action(
-                id=f"act_{uuid.uuid4().hex[:12]}",
-                run_id=self.run_id,
-                agent_id=self.agent_id,
-                timestamp_s=simulation_time,
-                version=PROTOCOL_VERSION,
-                action_type_id=action_type,
-                target_instance_id=target_id,
-                parameters={"approach_distance_m": 0.5},
-                intention_id=None,
-                result="pending",
-                correlation=correlation,
-                request_world_revision=world_revision
-            )
-            message_id = action.id
-            payload = serialize_message(action)
-            self.pending_requests[message_id] = {
-                "type": "action", "timestamp": time.time(),
-                "target_index": target_index, "payload": payload,
-            }
-            await self.send(payload)
+        # Arbitration: the mock agent selects a single action from the target
+        # sequence. The winner layer is always "mock" for this implementation.
+        with tracer.start_as_current_span(
+            SPAN_ARBITRATION_SELECT,
+            attributes={
+                **span_attributes_from_correlation(correlation),
+                "winner.layer": "mock",
+                "reason.category": "target_sequence",
+            },
+        ):
+            # Intention validation: touch/inspect become intentions.
+            if action_type in ["touch", "inspect"]:
+                with tracer.start_as_current_span(
+                    SPAN_INTENTION_VALIDATE,
+                    attributes={
+                        **span_attributes_from_correlation(correlation),
+                        INTENTION_TYPE_ATTR: action_type,
+                        RESULT_ATTR: "formed",
+                    },
+                ):
+                    intention = Intention(
+                        id=f"int_{uuid.uuid4().hex[:12]}",
+                        run_id=self.run_id,
+                        agent_id=self.agent_id,
+                        timestamp_s=simulation_time,
+                        version=PROTOCOL_VERSION,
+                        intention_type_id=action_type,
+                        target_instance_id=target_id,
+                        target_type_id=None,
+                        thought=f"Mock agent {action_type}ing {target_id}",
+                        goal=f"Test {action_type}",
+                        status="formed",
+                        correlation=correlation,
+                        request_world_revision=world_revision
+                    )
+                    message_id = intention.id
+                    payload = serialize_message(intention)
+                    self.pending_requests[message_id] = {
+                        "type": "intention", "timestamp": time.time(),
+                        "target_index": target_index, "payload": payload,
+                    }
+                    await self.send(payload)
 
-        elif action_type == "wait":
-            # Wait completes as soon as the world processes it; the terminal
-            # result will clear _action_in_progress like any other action.
-            action = Action(
-                id=f"act_{uuid.uuid4().hex[:12]}",
-                run_id=self.run_id,
-                agent_id=self.agent_id,
-                timestamp_s=simulation_time,
-                version=PROTOCOL_VERSION,
-                action_type_id=action_type,
-                target_instance_id=target_id,
-                parameters={},
-                intention_id=None,
-                result="pending",
-                correlation=correlation,
-                request_world_revision=world_revision
-            )
-            message_id = action.id
-            payload = serialize_message(action)
-            self.pending_requests[message_id] = {
-                "type": "action", "timestamp": time.time(),
-                "target_index": target_index, "payload": payload,
-            }
-            await self.send(payload)
-        else:
-            # Unknown action type: leave the index untouched.
-            return
+            # Action execution: move/wait become actions sent to the world.
+            elif action_type == "move":
+                with tracer.start_as_current_span(
+                    SPAN_ACTION_EXECUTE,
+                    attributes={
+                        **span_attributes_from_correlation(correlation),
+                        ACTION_TYPE_ATTR: action_type,
+                        RESULT_ATTR: "pending",
+                    },
+                ):
+                    action = Action(
+                        id=f"act_{uuid.uuid4().hex[:12]}",
+                        run_id=self.run_id,
+                        agent_id=self.agent_id,
+                        timestamp_s=simulation_time,
+                        version=PROTOCOL_VERSION,
+                        action_type_id=action_type,
+                        target_instance_id=target_id,
+                        parameters={"approach_distance_m": 0.5},
+                        intention_id=None,
+                        result="pending",
+                        correlation=correlation,
+                        request_world_revision=world_revision
+                    )
+                    message_id = action.id
+                    payload = serialize_message(action)
+                    self.pending_requests[message_id] = {
+                        "type": "action", "timestamp": time.time(),
+                        "target_index": target_index, "payload": payload,
+                    }
+                    await self.send(payload)
+
+            elif action_type == "wait":
+                # Wait completes as soon as the world processes it; the terminal
+                # result will clear _action_in_progress like any other action.
+                with tracer.start_as_current_span(
+                    SPAN_ACTION_EXECUTE,
+                    attributes={
+                        **span_attributes_from_correlation(correlation),
+                        ACTION_TYPE_ATTR: action_type,
+                        RESULT_ATTR: "pending",
+                    },
+                ):
+                    action = Action(
+                        id=f"act_{uuid.uuid4().hex[:12]}",
+                        run_id=self.run_id,
+                        agent_id=self.agent_id,
+                        timestamp_s=simulation_time,
+                        version=PROTOCOL_VERSION,
+                        action_type_id=action_type,
+                        target_instance_id=target_id,
+                        parameters={},
+                        intention_id=None,
+                        result="pending",
+                        correlation=correlation,
+                        request_world_revision=world_revision
+                    )
+                    message_id = action.id
+                    payload = serialize_message(action)
+                    self.pending_requests[message_id] = {
+                        "type": "action", "timestamp": time.time(),
+                        "target_index": target_index, "payload": payload,
+                    }
+                    await self.send(payload)
+            else:
+                # Unknown action type: leave the index untouched.
+                return
 
         if advance:
             self.current_target_index = max(self.current_target_index, target_index + 1)

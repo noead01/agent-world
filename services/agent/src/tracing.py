@@ -130,6 +130,7 @@ def span_context_from_correlation(correlation: CorrelationContext) -> trace.Span
             trace_id=int(trace_id_str, 16),
             span_id=int(span_id_str, 16),
             is_remote=True,
+            trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED),
         )
     except ValueError:
         return trace.INVALID_SPAN.get_span_context()

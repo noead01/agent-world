@@ -32,7 +32,7 @@ The first meaningful change on a feature branch moves its entry from `backlog/pN
 | Item | Status | Branch | Pull request |
 |---|---|---|---|
 | [TODO-0010 — Create append-only run recording](done/TODO-0010-create-append-only-run-recording.md) | `done` | `feature/todo-0010-append-only-run-recording` | [#10](https://github.com/noead01/agent-world/pull/10) |
-| [TODO-0011 — Instrument the critical path](in-progress/TODO-0011-instrument-the-critical-path.md) | `in-progress` | `feature/todo-0011-instrument-the-critical-path` | — |
+| [TODO-0011 — Instrument the critical path](done/TODO-0011-instrument-the-critical-path.md) | `done` | `feature/todo-0011-instrument-the-critical-path` | [#11](https://github.com/noead01/agent-world/pull/11) |
 | [TODO-0004 — Define core identifiers and versioned schemas](done/TODO-0004-define-core-identifiers-and-versioned-schemas.md) | `done` | `feature/todo-0004-core-identifiers-versioned-schemas` | [#2](https://github.com/noead01/agent-world/pull/2) |
 | [TODO-0002 — Create the Godot 4 project](done/TODO-0002-create-the-godot-4-project.md) | `done` | `feature/todo-0002-godot-4-project` | [#3](https://github.com/noead01/agent-world/pull/3) |
 | [TODO-0003 — Retire or archive the browser prototype](done/TODO-0003-retire-or-archive-the-browser-prototype.md) | `done` | `refactor/todo-0003-archive-browser-prototype` | [#6](https://github.com/noead01/agent-world/pull/6) |

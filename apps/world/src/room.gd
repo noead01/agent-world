@@ -19,6 +19,11 @@ var fixed_timestep_hz: float = 60.0
 @export var stale_threshold: int = 5
 @export var world_state_interval_ticks: int = 5
 
+# Experiment identification (mirrored on ProtocolHandler for trace correlation)
+@export var experiment_id: String = "exp_autonomous_discovery_01"
+@export var scenario_id: String = "first_benchmark_room"
+@export var scenario_version: String = "1.0.0"
+
 var objects: Array = []
 var _sim_time_template = preload("res://src/simulation_time.gd")
 var _trace_template = preload("res://src/trace.gd")
@@ -160,7 +165,11 @@ func _ready() -> void:
 
 	# Create WebSocketClient for agent service communication
 	var ws_client = _ws_client_template.new()
-	ws_client.url = "ws://localhost:8765"
+	# Allow overriding agent service URL via environment variable for testing
+	var agent_service_url = OS.get_environment("AGENT_SERVICE_URL")
+	if agent_service_url == "":
+		agent_service_url = "ws://localhost:8765"
+	ws_client.url = agent_service_url
 	ws_client.configure_hello(run_id, _agent.agent_id, "", "", "", random_seed)
 	add_child(ws_client)
 	ws_client.connect_to_server()
@@ -180,6 +189,8 @@ func _ready() -> void:
 
 	# Trace context for the world runtime.
 	_trace = _trace_template.new()
+	# Use call_deferred to ensure trace is set after protocol_handler._ready() runs
+	_protocol_handler.call_deferred("set_trace", _trace)
 
 	# Connect ProtocolHandler signals
 	_protocol_handler.action_received.connect(_on_action_received)
@@ -302,7 +313,10 @@ func _vector_to_dict(vector: Vector3) -> Dictionary:
 
 func _physics_process(delta: float) -> void:
 	# Advance simulation time through fixed physics steps
+	var tick_start_usec = Time.get_ticks_usec()
 	_sim_time.tick(delta)
+	var tick_duration_usec = Time.get_ticks_usec() - tick_start_usec
+	var tick_duration_sec = tick_duration_usec / 1_000_000.0
 
 	# Send world state via ProtocolHandler
 	if _protocol_handler:
@@ -322,6 +336,23 @@ func _physics_process(delta: float) -> void:
 		if _health_timer >= HEALTH_INTERVAL_S:
 			_health_timer = 0.0
 			_protocol_handler.send_health_status()
+		
+		# Emit physics/runtime metrics
+		if _trace:
+			_trace.record_histogram("agent_world_simulation_tick_duration_seconds", tick_duration_sec, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+			_trace.set_gauge("agent_world_simulation_tick_total", _sim_time.simulation_tick, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+			_trace.set_gauge("agent_world_simulation_time_scale", _sim_time.time_scale, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+			_trace.set_gauge("agent_world_simulation_paused", 1 if _sim_time.is_paused else 0, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+			_trace.set_gauge("agent_world_world_revision", _world_revision, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+			
+			# Physics body counts - approximate from objects array
+			var active_count = 0
+			for obj in objects:
+				if not obj.is_sleeping():
+					active_count += 1
+			var sleeping_count = objects.size() - active_count
+			_trace.set_gauge("agent_world_physics_active_body_count", active_count, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+			_trace.set_gauge("agent_world_physics_sleeping_body_count", sleeping_count, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
 
 	# Demo sequence: pause/resume/time-scale/reset at scheduled times. The step
 	# counter makes each transition one-shot; matching only on elapsed wall time

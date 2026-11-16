@@ -27,13 +27,16 @@ var _pending_requests: Dictionary = {}  # request_id -> {type, correlation, time
 var _received_commands: Dictionary = {}  # command_id -> {terminal_result}
 var _trace_id: String = ""
 var _trace
-var _trace_template = preload("res://src/trace.gd")
+
+func set_trace(trace_instance) -> void:
+	_trace = trace_instance
+	print("ProtocolHandler: Trace set via set_trace()")
 
 func _ready() -> void:
-	_trace = _trace_template.new()
 	# Only auto-discover WebSocketClient if not already set via set_websocket_client
 	if _websocket_client == null and has_node("../WebSocketClient"):
 		set_websocket_client(get_node("../WebSocketClient"))
+	print("ProtocolHandler: _ready() called, trace = ", _trace)
 
 func set_websocket_client(client) -> void:
 	_websocket_client = client
@@ -56,6 +59,7 @@ func _on_disconnected(reason: String) -> void:
 
 func _on_message_received(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
+	var start_msec = Time.get_ticks_msec()
 	match msg_type:
 		"HelloAck":
 			_on_hello_ack(msg)
@@ -107,6 +111,17 @@ func _on_message_received(msg: Dictionary) -> void:
 			observation_ready.emit(msg)
 		_:
 			pass
+	
+	# Record inbound protocol metrics
+	if _trace:
+		var duration_sec = (Time.get_ticks_msec() - start_msec) / 1000.0
+		var attrs = {
+			"message.type": msg_type,
+			"direction": "inbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+		_trace.record_histogram("agent_world_protocol_round_trip_seconds", duration_sec, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
 	
 	# Print correlation for demo verification
 	if msg.has("correlation"):
@@ -277,7 +292,7 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 		
 	# Trace: world.perception.collect (collecting nearby objects, agent state)
 	var collect_span = _trace.start_span(
-		_trace_template.SPAN_PERCEPTION_COLLECT,
+		"world.perception.collect",
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
@@ -290,7 +305,7 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 	
 	# Trace: world.observation.publish (publishing WorldState)
 	var publish_span = _trace.start_span(
-		_trace_template.SPAN_OBSERVATION_PUBLISH,
+		"world.observation.publish",
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
@@ -317,6 +332,16 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 	_websocket_client.send_message(state)
 	print("MSG_JSON: %s" % [JSON.stringify(state)])
 	
+	# Record outbound WorldState protocol metrics
+	if _trace:
+		var attrs = {
+			"message.type": "WorldState",
+			"direction": "outbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+		_trace.record_histogram("agent_world_protocol_message_size_bytes", len(JSON.stringify(state)), attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+	
 	_trace.end_span(collect_span)
 	_trace.end_span(publish_span)
 
@@ -325,7 +350,7 @@ func send_observation(observation: Dictionary) -> void:
 	# Start the publish span BEFORE creating correlation, so the span ID
 	# matches the outgoing message's correlation.
 	var span = _trace.start_span(
-		_trace_template.SPAN_OBSERVATION_PUBLISH,
+		"world.observation.publish",
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
@@ -339,13 +364,24 @@ func send_observation(observation: Dictionary) -> void:
 	msg["correlation"] = correlation
 	_websocket_client.send_message(msg)
 	observation_ready.emit(msg)
+	
+	# Record outbound Observation protocol metrics
+	if _trace:
+		var attrs = {
+			"message.type": "Observation",
+			"direction": "outbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+		_trace.record_histogram("agent_world_protocol_message_size_bytes", len(JSON.stringify(msg)), attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+	
 	_trace.end_span(span)
 
 func send_intention(intention: Dictionary) -> void:
 	var msg = intention.duplicate()
 	# Start the action execute span BEFORE creating correlation.
 	var span = _trace.start_span(
-		_trace_template.SPAN_ACTION_EXECUTE,
+		"world.action.execute",
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
@@ -362,13 +398,24 @@ func send_intention(intention: Dictionary) -> void:
 	_websocket_client.send_message(msg)
 	intention_sent.emit(msg)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	
+	# Record outbound Intention protocol metrics
+	if _trace:
+		var attrs = {
+			"message.type": "Intention",
+			"direction": "outbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+		_trace.record_histogram("agent_world_protocol_message_size_bytes", len(JSON.stringify(msg)), attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+	
 	_trace.end_span(span)
 
 func send_action(action: Dictionary) -> void:
 	var msg = action.duplicate()
 	# Start the action execute span BEFORE creating correlation.
 	var span = _trace.start_span(
-		_trace_template.SPAN_ACTION_EXECUTE,
+		"world.action.execute",
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
@@ -385,6 +432,18 @@ func send_action(action: Dictionary) -> void:
 	if _received_commands.has(msg["id"]) and msg.get("result", "") != "pending":
 		_received_commands[msg["id"]]["terminal_result"] = msg.duplicate(true)
 	_websocket_client.send_message(msg)
+	
+	# Record outbound Action protocol metrics
+	if _trace:
+		var attrs = {
+			"message.type": "Action",
+			"direction": "outbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+		_trace.record_histogram("agent_world_protocol_message_size_bytes", len(JSON.stringify(msg)), attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+	
+	_trace.end_span(span)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
 	_trace.end_span(span)
 
@@ -399,7 +458,7 @@ func send_terminal_result(action: Dictionary, parent_span: Dictionary = {}) -> v
 	else:
 		# Fallback: create a new span if no parent provided (should not happen in normal flow)
 		var fallback_span = _trace.start_span(
-			_trace_template.SPAN_ACTION_EXECUTE,
+			"world.action.execute",
 			{},
 			_trace.bounded_attributes(
 				experiment_id, scenario_id, scenario_version, agent_id,
@@ -414,6 +473,16 @@ func send_terminal_result(action: Dictionary, parent_span: Dictionary = {}) -> v
 	msg["request_world_revision"] = _current_world_revision
 	_websocket_client.send_message(msg)
 	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	
+	# Record outbound terminal Action protocol metrics
+	if _trace:
+		var attrs = {
+			"message.type": "Action",
+			"direction": "outbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
+		_trace.record_histogram("agent_world_protocol_message_size_bytes", len(JSON.stringify(msg)), attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
 
 func _make_correlation() -> Dictionary:
 	# Resolve lazily as well as in set_websocket_client(), because sibling node

@@ -126,3 +126,116 @@ func bounded_attributes(
 		"component": component,
 		"component.version": component_version,
 	}
+
+# Metrics emission (console-based for local development)
+# In GDScript, we emit metrics as structured log lines that can be parsed
+# by the console exporter or collected by a metrics aggregator.
+
+# Metrics storage
+var _metrics_initialized: bool = false
+
+func _init_metrics():
+	if _metrics_initialized:
+		return
+	_metrics_initialized = true
+
+func _build_metric_attributes(
+	experiment_id: String,
+	scenario_id: String,
+	scenario_version: String,
+	agent_id: String,
+	world_revision: int,
+	simulation_tick: int,
+	simulation_time: float,
+	attributes: Dictionary
+) -> Dictionary:
+	var base = bounded_attributes(
+		experiment_id,
+		scenario_id,
+		scenario_version,
+		agent_id,
+		world_revision,
+		simulation_tick,
+		simulation_time,
+	)
+	for key in attributes:
+		base[key] = attributes[key]
+	return base
+
+func record_counter(
+	name: String,
+	value: float = 1.0,
+	attributes: Dictionary = {},
+	experiment_id: String = "",
+	scenario_id: String = "",
+	scenario_version: String = "",
+	agent_id: String = "",
+	world_revision: int = 0,
+	simulation_tick: int = 0,
+	simulation_time: float = 0.0,
+) -> void:
+	if not _metrics_initialized:
+		_init_metrics()
+	var attrs = _build_metric_attributes(
+		experiment_id,
+		scenario_id,
+		scenario_version,
+		agent_id,
+		world_revision,
+		simulation_tick,
+		simulation_time,
+		attributes
+	)
+	print("METRIC_COUNTER: name=%s value=%f attrs=%s" % [name, value, JSON.stringify(attrs)])
+
+func record_histogram(
+	name: String,
+	value: float,
+	attributes: Dictionary = {},
+	experiment_id: String = "",
+	scenario_id: String = "",
+	scenario_version: String = "",
+	agent_id: String = "",
+	world_revision: int = 0,
+	simulation_tick: int = 0,
+	simulation_time: float = 0.0,
+) -> void:
+	if not _metrics_initialized:
+		_init_metrics()
+	var attrs = _build_metric_attributes(
+		experiment_id,
+		scenario_id,
+		scenario_version,
+		agent_id,
+		world_revision,
+		simulation_tick,
+		simulation_time,
+		attributes
+	)
+	print("METRIC_HISTOGRAM: name=%s value=%f attrs=%s" % [name, value, JSON.stringify(attrs)])
+
+func set_gauge(
+	name: String,
+	value: float,
+	attributes: Dictionary = {},
+	experiment_id: String = "",
+	scenario_id: String = "",
+	scenario_version: String = "",
+	agent_id: String = "",
+	world_revision: int = 0,
+	simulation_tick: int = 0,
+	simulation_time: float = 0.0,
+) -> void:
+	if not _metrics_initialized:
+		_init_metrics()
+	var attrs = _build_metric_attributes(
+		experiment_id,
+		scenario_id,
+		scenario_version,
+		agent_id,
+		world_revision,
+		simulation_tick,
+		simulation_time,
+		attributes
+	)
+	print("METRIC_GAUGE: name=%s value=%f attrs=%s" % [name, value, JSON.stringify(attrs)])

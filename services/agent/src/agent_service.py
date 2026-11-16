@@ -451,6 +451,45 @@ class AgentService:
             return
 
         mock_agent = client["mock_agent"]
+        correlation = client.get("correlation")
+        
+        # Initialize metrics if needed
+        if not self._metrics_initialized and correlation:
+            from .metrics import get_meter, create_counters, create_histograms, create_gauges
+            meter = get_meter()
+            self._counters = create_counters(meter)
+            self._histograms = create_histograms(meter)
+            self._gauges = create_gauges(meter)
+            self._metrics_initialized = True
+        
+        # Record inbound protocol metrics
+        if correlation and self._metrics_initialized:
+            attrs = metric_attributes_from_correlation(correlation)
+            if isinstance(msg, WorldState):
+                attrs["message.type"] = "WorldState"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Observation):
+                attrs["message.type"] = "Observation"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Action):
+                attrs["message.type"] = "Action"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Intention):
+                attrs["message.type"] = "Intention"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Error):
+                attrs["message.type"] = "Error"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "error"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
         
         # Route to mock agent
         if isinstance(msg, WorldState):

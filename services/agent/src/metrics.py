@@ -51,6 +51,9 @@ DISCOVERY_STAGE_ATTR = "discovery.stage"
 EVENT_FAMILY_ATTR = "event.family"
 ARTIFACT_TYPE_ATTR = "artifact.type"
 OBSERVABILITY_PROFILE_ATTR = "observability.profile"
+TRACE_ID_ATTR = "trace_id"
+SPAN_ID_ATTR = "span_id"
+INTENTION_TYPE_ATTR = "intention.type"
 
 
 def init_metrics(
@@ -106,8 +109,9 @@ def metric_attributes_from_correlation(correlation) -> dict:
     
     run_id is intentionally excluded (high cardinality); it remains in the
     correlation context for trace correlation.
+    trace_id and span_id are included for trace correlation.
     """
-    return {
+    attrs = {
         EXPERIMENT_ID_ATTR: correlation.experiment_id,
         SCENARIO_ID_ATTR: correlation.scenario_id,
         SCENARIO_VERSION_ATTR: correlation.scenario_version,
@@ -118,6 +122,11 @@ def metric_attributes_from_correlation(correlation) -> dict:
         COMPONENT_ATTR: correlation.component,
         COMPONENT_VERSION_ATTR: correlation.component_version,
     }
+    if correlation.trace_id:
+        attrs[TRACE_ID_ATTR] = correlation.trace_id
+    if correlation.span_id:
+        attrs[SPAN_ID_ATTR] = correlation.span_id
+    return attrs
 
 
 def create_counters(meter: metrics.Meter) -> dict:

@@ -23,6 +23,18 @@ from .tracing import (
     RESULT_ATTR,
     INTENTION_TYPE_ATTR,
 )
+from .metrics import (
+    get_meter,
+    create_counters,
+    create_histograms,
+    create_gauges,
+    metric_attributes_from_correlation,
+    ACTION_TYPE_ATTR as METRIC_ACTION_TYPE_ATTR,
+    RESULT_ATTR as METRIC_RESULT_ATTR,
+    INTENTION_TYPE_ATTR as METRIC_INTENTION_TYPE_ATTR,
+    WINNER_LAYER_ATTR,
+    REASON_CATEGORY_ATTR,
+)
 
 
 class MockAgent:
@@ -75,6 +87,22 @@ class MockAgent:
         # Baseline for converting successive WorldState updates into simulated
         # progress. A pause leaves it unchanged; a reset moves it backwards.
         self._last_simulation_tick: Optional[int] = None
+        
+        # Metrics instruments (initialized lazily on first use)
+        self._counters: Optional[Dict] = None
+        self._histograms: Optional[Dict] = None
+        self._gauges: Optional[Dict] = None
+        self._metrics_initialized: bool = False
+        
+    def _init_metrics(self) -> None:
+        """Lazy initialization of metrics instruments."""
+        if self._metrics_initialized:
+            return
+        meter = get_meter()
+        self._counters = create_counters(meter)
+        self._histograms = create_histograms(meter)
+        self._gauges = create_gauges(meter)
+        self._metrics_initialized = True
         
     def set_targets(self, targets: List[Dict[str, Any]]) -> None:
         """Set the action target sequence."""
@@ -167,7 +195,7 @@ class MockAgent:
         # results (e.g. a move interrupted by a touch) must not clear the state
         # of the command that superseded them.
         is_active = action.id == self._active_request_id
-        self.pending_requests.pop(action.id, None)
+        request = self.pending_requests.pop(action.id, None)
         if not is_active:
             return
         self._active_request_id = None
@@ -176,6 +204,16 @@ class MockAgent:
         self._action_in_progress = False
         # Issue next action after cooldown
         self.cooldown_remaining_ticks = self.ACTION_COOLDOWN_TICKS
+        
+        # Record terminal action result metric
+        if self._metrics_initialized and request:
+            correlation = request.get("correlation")
+            if correlation:
+                base_attrs = metric_attributes_from_correlation(correlation)
+                action_attrs = dict(base_attrs)
+                action_attrs[METRIC_ACTION_TYPE_ATTR] = action.action_type_id
+                action_attrs[METRIC_RESULT_ATTR] = action.result or "unknown"
+                self._counters["agent_world_action_total"].add(1, action_attrs)
 
     def _abandon_request(self, request_id: Optional[str]) -> None:
         """Stop awaiting a command the world rejected as invalid.
@@ -351,6 +389,12 @@ class MockAgent:
 
         correlation = self._make_correlation(world_revision, simulation_tick, simulation_time)
 
+        # Initialize metrics
+        self._init_metrics()
+        
+        # Base metric attributes from correlation
+        base_attrs = metric_attributes_from_correlation(correlation)
+
         # Artificial delay to simulate slow response (50% chance, 12 simulation
         # ticks). Scheduling against simulated progress keeps replay
         # deterministic regardless of wall-clock speed and freezes the delay
@@ -368,6 +412,7 @@ class MockAgent:
             return
 
         tracer = trace.get_tracer(__name__)
+        deliberation_start = time.perf_counter()
 
         # Arbitration: the mock agent selects a single action from the target
         # sequence. The winner layer is always "mock" for this implementation.
@@ -379,8 +424,16 @@ class MockAgent:
                 "reason.category": "target_sequence",
             },
         ):
+            # Record arbitration metric
+            if self._metrics_initialized:
+                arb_attrs = dict(base_attrs)
+                arb_attrs[WINNER_LAYER_ATTR] = "mock"
+                arb_attrs[REASON_CATEGORY_ATTR] = "target_sequence"
+                self._counters["agent_world_arbitration_total"].add(1, arb_attrs)
+            
             # Intention validation: touch/inspect become intentions.
             if action_type in ["touch", "inspect"]:
+                intention_start = time.perf_counter()
                 with tracer.start_as_current_span(
                     SPAN_INTENTION_VALIDATE,
                     attributes={
@@ -411,9 +464,20 @@ class MockAgent:
                         "target_index": target_index, "payload": payload,
                     }
                     await self.send(payload)
+                
+                # Record intention metrics
+                if self._metrics_initialized:
+                    intention_attrs = dict(base_attrs)
+                    intention_attrs[METRIC_INTENTION_TYPE_ATTR] = action_type
+                    intention_attrs[METRIC_RESULT_ATTR] = "formed"
+                    self._counters["agent_world_intention_total"].add(1, intention_attrs)
+                    self._histograms["agent_world_intention_duration_seconds"].record(
+                        time.perf_counter() - intention_start, intention_attrs
+                    )
 
             # Action execution: move/wait become actions sent to the world.
             elif action_type == "move":
+                action_start = time.perf_counter()
                 with tracer.start_as_current_span(
                     SPAN_ACTION_EXECUTE,
                     attributes={
@@ -443,8 +507,19 @@ class MockAgent:
                         "target_index": target_index, "payload": payload,
                     }
                     await self.send(payload)
+                
+                # Record action metrics
+                if self._metrics_initialized:
+                    action_attrs = dict(base_attrs)
+                    action_attrs[METRIC_ACTION_TYPE_ATTR] = action_type
+                    action_attrs[METRIC_RESULT_ATTR] = "pending"
+                    self._counters["agent_world_action_total"].add(1, action_attrs)
+                    self._histograms["agent_world_action_duration_seconds"].record(
+                        time.perf_counter() - action_start, action_attrs
+                    )
 
             elif action_type == "wait":
+                action_start = time.perf_counter()
                 # Wait completes as soon as the world processes it; the terminal
                 # result will clear _action_in_progress like any other action.
                 with tracer.start_as_current_span(
@@ -476,9 +551,25 @@ class MockAgent:
                         "target_index": target_index, "payload": payload,
                     }
                     await self.send(payload)
+                
+                # Record action metrics
+                if self._metrics_initialized:
+                    action_attrs = dict(base_attrs)
+                    action_attrs[METRIC_ACTION_TYPE_ATTR] = action_type
+                    action_attrs[METRIC_RESULT_ATTR] = "pending"
+                    self._counters["agent_world_action_total"].add(1, action_attrs)
+                    self._histograms["agent_world_action_duration_seconds"].record(
+                        time.perf_counter() - action_start, action_attrs
+                    )
             else:
                 # Unknown action type: leave the index untouched.
                 return
+
+        # Record deliberation duration
+        if self._metrics_initialized:
+            self._histograms["agent_world_deliberation_duration_seconds"].record(
+                time.perf_counter() - deliberation_start, base_attrs
+            )
 
         if advance:
             self.current_target_index = max(self.current_target_index, target_index + 1)

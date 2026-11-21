@@ -25,9 +25,9 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 ## Acceptance criteria
 
-- [ ] Each drive has documented range, inputs, update frequency, and thresholds.
-- [ ] Identical inputs and seeds produce identical drive histories.
-- [ ] Threshold crossings can influence arbitration and are recorded when behaviorally relevant.
+- [x] Each drive has documented range, inputs, update frequency, and thresholds.
+- [x] Identical inputs and seeds produce identical drive histories.
+- [x] Threshold crossings can influence arbitration and are recorded when behaviorally relevant.
 
 ## Definition of done
 
@@ -46,8 +46,23 @@ Deliver the smallest coherent implementation that achieves the stated outcome an
 
 - 2026-10-29 — `backlog`: Item materialized from the prioritized roadmap.
 - 2026-11-21 — `in-progress`: Started implementation on branch `feature/todo-0013-implement-three-initial-drives`.
+- 2026-11-21 — Core drive system implemented in `services/agent/src/mock_agent.py`:
+  - Curiosity (0.0-1.0): novelty-seeking, +0.15 for new objects, -0.01/tick decay
+  - Uncertainty (0.0-1.0): prediction error, +0.1 for >20cm error, -0.005/tick decay
+  - Physical Integrity (0.0-1.0): safety, -0.005/tick near hazards, +0.002/tick recovery
+  - Update frequency: per simulation tick (60Hz)
+  - Thresholds: Curiosity > 0.7 (explore), Uncertainty > 0.6 (investigate), Integrity < 0.3 (safety)
+  - Arbitration priority: Integrity > Uncertainty > Curiosity
+  - Drive history recorded for deterministic replay verification
 
 ## Notes
 
 Record blockers, scope changes, implementation decisions, and review context here.
+
+### Implementation decisions:
+- Drives implemented in MockAgent (agent service) rather than Godot world - keeps cognition separate from physics
+- WorldState provides agent_position (dict) and nearby_objects (list of dicts) for drive computation
+- Deterministic updates using simulation tick, not wall time - ensures replay reproducibility
+- Drive history bounded to last 1000 ticks to prevent memory growth
+- Thresholds as class constants for easy tuning
 

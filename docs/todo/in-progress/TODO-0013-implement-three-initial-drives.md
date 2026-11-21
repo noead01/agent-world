@@ -66,3 +66,13 @@ Record blockers, scope changes, implementation decisions, and review context her
 - Drive history bounded to last 1000 ticks to prevent memory growth
 - Thresholds as class constants for easy tuning
 
+### Codex Review Findings (2026-11-21) - All Addressed:
+- **P1**: Drive fallback logic - agent now falls back to target sequence when no drive threshold crossed
+- **P1**: Target slot restoration - fixed try/finally to restore at correct index after _issue_next_action advances cursor  
+- **P1**: Prediction overwrite - compute uncertainty BEFORE updating _predicted_positions in curiosity loop
+- **P1**: Drive delta scaling - scale by elapsed simulation ticks (delta_ticks) for correct threshold timing
+- **P2**: HealthStatus protocol parser - added to schemas.py and protocol.py
+- **P2**: Mock action double-execution - _on_mock_action_issued now observational only
+- **P1**: Per-tick metrics spam - gated to emit once per second wall time instead of 60Hz
+- **P1**: Demo duration - made configurable via AGENT_WORLD_DEMO_DURATION (default 10s for tests)
+

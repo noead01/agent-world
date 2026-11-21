@@ -3,7 +3,7 @@ import json
 import random
 import time
 import uuid
-from typing import Callable, Awaitable, Dict, Any, List, Optional
+from typing import Callable, Awaitable, Dict, Any, List, Optional, Tuple
 
 from opentelemetry import trace
 
@@ -46,6 +46,11 @@ class MockAgent:
     ACTION_DELAY_TICKS = 12
     ACTION_COOLDOWN_TICKS = 30
     
+    # Drive thresholds for arbitration influence
+    CURIOSITY_EXPLORE_THRESHOLD = 0.7
+    UNCERTAINTY_INVESTIGATE_THRESHOLD = 0.6
+    INTEGRITY_SAFETY_THRESHOLD = 0.3
+    
     def __init__(
         self, 
         agent_id: str, 
@@ -87,6 +92,21 @@ class MockAgent:
         # Baseline for converting successive WorldState updates into simulated
         # progress. A pause leaves it unchanged; a reset moves it backwards.
         self._last_simulation_tick: Optional[int] = None
+        
+        # --- Drive system ---
+        # Each drive in range [0.0, 1.0], updated deterministically per tick
+        # Curiosity: increases with novel observations, decays with familiarity
+        self.curiosity: float = 0.5
+        # Uncertainty: increases with prediction error, decays with confirmation
+        self.uncertainty: float = 0.5
+        # Physical Integrity: decreases with impacts, recovers in safety
+        self.physical_integrity: float = 1.0
+        
+        # Drive history for deterministic replay and observability
+        self._drive_history: List[Dict[str, Any]] = []
+        self._seen_objects: Dict[str, int] = {}  # object_id -> tick last seen
+        self._last_agent_position: Optional[Tuple[float, float, float]] = None
+        self._predicted_positions: Dict[str, Tuple[float, float, float]] = {}  # object_id -> predicted position
         
         # Metrics instruments (initialized lazily on first use)
         self._counters: Optional[Dict] = None
@@ -179,6 +199,10 @@ class MockAgent:
         # Update correlation base with latest world revision
         self.correlation_base = state.correlation
         self._advance_simulation_progress(state.simulation_tick)
+        
+        # Update drives based on world state (deterministic, per-tick)
+        self._update_drives(state)
+        
         if self._awaiting_world_state:
             self._awaiting_world_state = False
             if self._resume_pending:
@@ -279,6 +303,212 @@ class MockAgent:
         if self.cooldown_remaining_ticks > 0:
             self.cooldown_remaining_ticks = max(0, self.cooldown_remaining_ticks - delta_ticks)
 
+    def _update_drives(self, state: WorldState) -> None:
+        """Update all three drives deterministically based on world state.
+        
+        Each drive in range [0.0, 1.0]:
+        - Curiosity: increases with novel observations, decays with familiarity
+        - Uncertainty: increases with prediction error, decays with confirmation  
+        - Physical Integrity: decreases with impacts, recovers in safety
+        
+        Updates are deterministic: identical inputs + seed = identical drive histories.
+        """
+        tick = state.simulation_tick
+        agent_pos_dict = state.agent_position
+        agent_pos = (agent_pos_dict.get("x", 0.0), agent_pos_dict.get("y", 0.0), agent_pos_dict.get("z", 0.0))
+        nearby_objects = state.nearby_objects
+        
+        # --- Curiosity: novelty-seeking ---
+        # Increase for each newly seen or changed object, decay otherwise
+        curiosity_delta = 0.0
+        for obj in nearby_objects:
+            obj_id = obj.get("instance_id", "")
+            pos_dict = obj.get("position", {})
+            obj_pos = (pos_dict.get("x", 0.0), pos_dict.get("y", 0.0), pos_dict.get("z", 0.0))
+            
+            if obj_id not in self._seen_objects:
+                # Never seen before - strong curiosity boost
+                curiosity_delta += 0.15
+                self._seen_objects[obj_id] = tick
+            else:
+                # Check if object moved (novel state)
+                last_seen_tick = self._seen_objects[obj_id]
+                if last_seen_tick != tick:  # Updated this tick
+                    # Check if position changed significantly
+                    predicted = self._predicted_positions.get(obj_id)
+                    if predicted:
+                        dx = obj_pos[0] - predicted[0]
+                        dy = obj_pos[1] - predicted[1]
+                        dz = obj_pos[2] - predicted[2]
+                        if dx*dx + dy*dy + dz*dz > 0.01:  # Moved > 10cm
+                            curiosity_delta += 0.05
+                    self._seen_objects[obj_id] = tick
+                    self._predicted_positions[obj_id] = obj_pos
+        
+        # Curiosity decay when nothing novel
+        if curiosity_delta == 0.0:
+            curiosity_delta = -0.01
+        
+        self.curiosity = max(0.0, min(1.0, self.curiosity + curiosity_delta))
+        
+        # --- Uncertainty: prediction error ---
+        # Increase when predictions don't match observations
+        uncertainty_delta = 0.0
+        for obj in nearby_objects:
+            obj_id = obj.get("instance_id", "")
+            pos_dict = obj.get("position", {})
+            obj_pos = (pos_dict.get("x", 0.0), pos_dict.get("y", 0.0), pos_dict.get("z", 0.0))
+            predicted = self._predicted_positions.get(obj_id)
+            if predicted:
+                dx = obj_pos[0] - predicted[0]
+                dy = obj_pos[1] - predicted[1]
+                dz = obj_pos[2] - predicted[2]
+                dist_sq = dx*dx + dy*dy + dz*dz
+                if dist_sq > 0.04:  # Prediction error > 20cm
+                    uncertainty_delta += 0.1
+                elif dist_sq > 0.01:  # Prediction error > 10cm
+                    uncertainty_delta += 0.03
+                else:
+                    # Good prediction - uncertainty decreases
+                    uncertainty_delta -= 0.005
+        
+        # Agent self-prediction error (did we move as expected?)
+        if self._last_agent_position is not None:
+            dx = agent_pos[0] - self._last_agent_position[0]
+            dy = agent_pos[1] - self._last_agent_position[1]
+            dz = agent_pos[2] - self._last_agent_position[2]
+            dist_sq = dx*dx + dy*dy + dz*dz
+            if dist_sq > 0.25:  # Unexpected movement > 50cm
+                uncertainty_delta += 0.05
+        self._last_agent_position = agent_pos
+        
+        # Uncertainty decay
+        if uncertainty_delta == 0.0:
+            uncertainty_delta = -0.005
+            
+        self.uncertainty = max(0.0, min(1.0, self.uncertainty + uncertainty_delta))
+        
+        # --- Physical Integrity: safety/damage ---
+        # Decrease with high-speed impacts, recover when stationary and safe
+        integrity_delta = 0.0
+        
+        # Check for recent impacts via agent status - WorldState doesn't have status, skip
+        # agent_status = state.agent_state.status
+        # if agent_status == "acting":  # Currently executing an action (touch/move)
+        #     # Could be impact - small decrease
+        #     integrity_delta -= 0.002
+        
+        # Check nearby objects for collision risk
+        for obj in nearby_objects:
+            pos_dict = obj.get("position", {})
+            obj_pos = (pos_dict.get("x", 0.0), pos_dict.get("y", 0.0), pos_dict.get("z", 0.0))
+            dx = agent_pos[0] - obj_pos[0]
+            dy = agent_pos[1] - obj_pos[1]
+            dz = agent_pos[2] - obj_pos[2]
+            dist_sq = dx*dx + dy*dy + dz*dz
+            if dist_sq < 0.5:  # Very close to object (< ~70cm)
+                integrity_delta -= 0.005
+        
+        # Recovery when stationary and not near hazards (no agent status in WorldState)
+        # if agent_status == "idle" and integrity_delta == 0.0:
+        if integrity_delta == 0.0:
+            integrity_delta = 0.002  # Slow recovery
+        
+        self.physical_integrity = max(0.0, min(1.0, self.physical_integrity + integrity_delta))
+        
+        # Record drive state for observability and deterministic replay verification
+        self._drive_history.append({
+            "tick": tick,
+            "curiosity": round(self.curiosity, 4),
+            "uncertainty": round(self.uncertainty, 4),
+            "physical_integrity": round(self.physical_integrity, 4),
+        })
+        # Keep history bounded (last 1000 ticks)
+        if len(self._drive_history) > 1000:
+            self._drive_history = self._drive_history[-1000:]
+
+    def _select_action_by_drives(self) -> Tuple[Optional[str], str, str]:
+        """Select next action based on drive states.
+        
+        Returns:
+            (action_type, target_id, reason_category) or (None, "", "") if no drive threshold crossed
+            
+        Drive influences:
+        - Curiosity > 0.7: explore (move to nearest unseen/least-seen object)
+        - Uncertainty > 0.6: investigate (touch/inspect most uncertain object)
+        - Physical Integrity < 0.3: safety (move away from nearest hazard, or wait)
+        
+        Priority order: Integrity (safety) > Uncertainty > Curiosity
+        """
+        if not self.last_world_state:
+            return None, "", ""
+        
+        agent_pos_dict = self.last_world_state.agent_position
+        agent_pos = (agent_pos_dict.get("x", 0.0), agent_pos_dict.get("y", 0.0), agent_pos_dict.get("z", 0.0))
+        nearby_objects = self.last_world_state.nearby_objects
+        
+        if not nearby_objects:
+            return None, "", ""
+        
+        # Priority 1: Physical Integrity - Safety takes precedence
+        if self.physical_integrity < self.INTEGRITY_SAFETY_THRESHOLD:
+            # Find nearest object to move away from, or just wait
+            def obj_distance_sq(o):
+                pos = o.get("position", {})
+                dx = agent_pos[0] - pos.get("x", 0.0)
+                dy = agent_pos[1] - pos.get("y", 0.0)
+                dz = agent_pos[2] - pos.get("z", 0.0)
+                return dx*dx + dy*dy + dz*dz
+            
+            nearest_obj = min(nearby_objects, key=obj_distance_sq)
+            # Move away from nearest object (use move with opposite direction logic)
+            # For simplicity, use wait when integrity is critical
+            if self.physical_integrity < 0.15:
+                return "wait", "", "integrity_critical"
+            return "move", nearest_obj.get("instance_id", ""), "integrity_safety"
+        
+        # Priority 2: Uncertainty - Investigate uncertain objects
+        if self.uncertainty > self.UNCERTAINTY_INVESTIGATE_THRESHOLD:
+            # Find object with highest prediction error
+            max_error_obj = None
+            max_error = 0.0
+            for obj in nearby_objects:
+                obj_id = obj.get("instance_id", "")
+                pos = obj.get("position", {})
+                obj_pos = (pos.get("x", 0.0), pos.get("y", 0.0), pos.get("z", 0.0))
+                predicted = self._predicted_positions.get(obj_id)
+                if predicted:
+                    dx = obj_pos[0] - predicted[0]
+                    dy = obj_pos[1] - predicted[1]
+                    dz = obj_pos[2] - predicted[2]
+                    error = dx*dx + dy*dy + dz*dz
+                    if error > max_error:
+                        max_error = error
+                        max_error_obj = obj
+            
+            if max_error_obj:
+                return "touch", max_error_obj.get("instance_id", ""), "uncertainty_investigation"
+            return "inspect", nearby_objects[0].get("instance_id", ""), "uncertainty_investigation"
+        
+        # Priority 3: Curiosity - Explore novel objects
+        if self.curiosity > self.CURIOSITY_EXPLORE_THRESHOLD:
+            # Find least-seen object
+            least_seen_obj = None
+            min_seen_tick = float('inf')
+            for obj in nearby_objects:
+                obj_id = obj.get("instance_id", "")
+                seen_tick = self._seen_objects.get(obj_id, -1)
+                if seen_tick < min_seen_tick:
+                    min_seen_tick = seen_tick
+                    least_seen_obj = obj
+            
+            if least_seen_obj:
+                return "move", least_seen_obj.get("instance_id", ""), "curiosity_exploration"
+            return "move", nearby_objects[0].get("instance_id", ""), "curiosity_exploration"
+        
+        # No drive threshold crossed - return None to use target sequence
+        return None, "", ""
+
     async def run_tick(self) -> None:
         """Main tick - called periodically to issue actions.
 
@@ -343,7 +573,65 @@ class MockAgent:
                     )
             return
 
-        if self.current_target_index < len(self.targets) and self.last_world_state:
+        # Drive-based arbitration: select action based on drive states
+        if self.last_world_state:
+            action_type, target_id, reason = self._select_action_by_drives()
+            if action_type:
+                # Override the target sequence with drive-selected action
+                # Create a synthetic target for _issue_next_action
+                synthetic_target = {
+                    "action_type": action_type,
+                    "target_id": target_id,
+                    "interrupt_after": False,
+                }
+                # Temporarily replace current target
+                original_target = None
+                if self.current_target_index < len(self.targets):
+                    original_target = self.targets[self.current_target_index]
+                    self.targets[self.current_target_index] = synthetic_target
+                else:
+                    self.targets.append(synthetic_target)
+                
+                # Reconstruct the parent span context from the correlation base so
+                # deliberation traces are children of the world trace that sent the
+                # WorldState. If correlation lacks trace_id/span_id, a new trace is
+                # started (fails open for telemetry).
+                parent_span_ctx = span_context_from_correlation(self.correlation_base)
+                if parent_span_ctx.is_valid:
+                    parent_context = trace.set_span_in_context(
+                        trace.NonRecordingSpan(parent_span_ctx)
+                    )
+                else:
+                    parent_context = None
+
+                tracer = trace.get_tracer(__name__)
+                with tracer.start_as_current_span(
+                    SPAN_DELIBERATION_REQUEST,
+                    context=parent_context,
+                    attributes=span_attributes_from_correlation(self.correlation_base),
+                ):
+                    # Record arbitration metric with drive-influenced reason
+                    self._init_metrics()
+                    base_attrs = metric_attributes_from_correlation(self.correlation_base)
+                    arb_attrs = dict(base_attrs)
+                    arb_attrs[WINNER_LAYER_ATTR] = "drive_arbitration"
+                    arb_attrs[REASON_CATEGORY_ATTR] = reason
+                    if self._metrics_initialized:
+                        self._counters["agent_world_arbitration_total"].add(1, arb_attrs)
+                    
+                    await self._issue_next_action(
+                        self.last_world_state.world_revision,
+                        self.last_world_state.simulation_tick,
+                        self.last_world_state.simulation_time
+                    )
+                
+                # Restore original target
+                if original_target is not None:
+                    self.targets[self.current_target_index] = original_target
+                elif len(self.targets) > 0:
+                    self.targets.pop()
+        elif self.current_target_index < len(self.targets):
+            # Fallback to original target sequence
             # Reconstruct the parent span context from the correlation base so
             # deliberation traces are children of the world trace that sent the
             # WorldState. If correlation lacks trace_id/span_id, a new trace is

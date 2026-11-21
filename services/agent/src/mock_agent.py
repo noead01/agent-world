@@ -198,10 +198,10 @@ class MockAgent:
         self.last_world_state = state
         # Update correlation base with latest world revision
         self.correlation_base = state.correlation
-        self._advance_simulation_progress(state.simulation_tick)
+        delta_ticks = self._advance_simulation_progress(state.simulation_tick)
         
-        # Update drives based on world state (deterministic, per-tick)
-        self._update_drives(state)
+        # Update drives based on world state (deterministic, scaled by elapsed ticks)
+        self._update_drives(state, delta_ticks)
         
         if self._awaiting_world_state:
             self._awaiting_world_state = False
@@ -284,26 +284,30 @@ class MockAgent:
             apply_delay=False,
         )
     
-    def _advance_simulation_progress(self, simulation_tick: int) -> None:
+    def _advance_simulation_progress(self, simulation_tick: int) -> int:
         """Advance every agent timer from simulated progress only.
 
         The world keeps sending WorldState while paused, but simulation_tick is
         frozen, so a paused world advances nothing. A reset moves the tick
         backwards; treat that as a zero-progress boundary instead of rewinding
         active timers.
+
+        Returns:
+            delta_ticks: Number of simulation ticks elapsed since last call (>= 0)
         """
         previous_tick = self._last_simulation_tick
         self._last_simulation_tick = simulation_tick
         if previous_tick is None or simulation_tick <= previous_tick:
-            return
+            return 0
 
         delta_ticks = simulation_tick - previous_tick
         if self._pending_delay is not None:
             self._pending_delay["remaining_ticks"] -= delta_ticks
         if self.cooldown_remaining_ticks > 0:
             self.cooldown_remaining_ticks = max(0, self.cooldown_remaining_ticks - delta_ticks)
+        return delta_ticks
 
-    def _update_drives(self, state: WorldState) -> None:
+    def _update_drives(self, state: WorldState, delta_ticks: int = 1) -> None:
         """Update all three drives deterministically based on world state.
         
         Each drive in range [0.0, 1.0]:
@@ -312,6 +316,7 @@ class MockAgent:
         - Physical Integrity: decreases with impacts, recovers in safety
         
         Updates are deterministic: identical inputs + seed = identical drive histories.
+        Drive deltas are scaled by delta_ticks (elapsed simulation ticks since last WorldState).
         """
         tick = state.simulation_tick
         agent_pos_dict = state.agent_position
@@ -328,31 +333,33 @@ class MockAgent:
             
             if obj_id not in self._seen_objects:
                 # Never seen before - strong curiosity boost
-                curiosity_delta += 0.15
+                curiosity_delta += 0.15 * delta_ticks
                 self._seen_objects[obj_id] = tick
             else:
                 # Check if object moved (novel state)
                 last_seen_tick = self._seen_objects[obj_id]
                 if last_seen_tick != tick:  # Updated this tick
-                    # Check if position changed significantly
+                    # Check if position changed significantly (compare against PREVIOUS prediction)
                     predicted = self._predicted_positions.get(obj_id)
                     if predicted:
                         dx = obj_pos[0] - predicted[0]
                         dy = obj_pos[1] - predicted[1]
                         dz = obj_pos[2] - predicted[2]
                         if dx*dx + dy*dy + dz*dz > 0.01:  # Moved > 10cm
-                            curiosity_delta += 0.05
+                            curiosity_delta += 0.05 * delta_ticks
                     self._seen_objects[obj_id] = tick
+                    # Update prediction AFTER computing curiosity delta
                     self._predicted_positions[obj_id] = obj_pos
         
         # Curiosity decay when nothing novel
         if curiosity_delta == 0.0:
-            curiosity_delta = -0.01
+            curiosity_delta = -0.01 * delta_ticks
         
         self.curiosity = max(0.0, min(1.0, self.curiosity + curiosity_delta))
         
         # --- Uncertainty: prediction error ---
         # Increase when predictions don't match observations
+        # IMPORTANT: Uses predictions that were set in PREVIOUS tick (not overwritten this tick)
         uncertainty_delta = 0.0
         for obj in nearby_objects:
             obj_id = obj.get("instance_id", "")
@@ -365,12 +372,12 @@ class MockAgent:
                 dz = obj_pos[2] - predicted[2]
                 dist_sq = dx*dx + dy*dy + dz*dz
                 if dist_sq > 0.04:  # Prediction error > 20cm
-                    uncertainty_delta += 0.1
+                    uncertainty_delta += 0.1 * delta_ticks
                 elif dist_sq > 0.01:  # Prediction error > 10cm
-                    uncertainty_delta += 0.03
+                    uncertainty_delta += 0.03 * delta_ticks
                 else:
                     # Good prediction - uncertainty decreases
-                    uncertainty_delta -= 0.005
+                    uncertainty_delta -= 0.005 * delta_ticks
         
         # Agent self-prediction error (did we move as expected?)
         if self._last_agent_position is not None:
@@ -379,24 +386,18 @@ class MockAgent:
             dz = agent_pos[2] - self._last_agent_position[2]
             dist_sq = dx*dx + dy*dy + dz*dz
             if dist_sq > 0.25:  # Unexpected movement > 50cm
-                uncertainty_delta += 0.05
+                uncertainty_delta += 0.05 * delta_ticks
         self._last_agent_position = agent_pos
         
         # Uncertainty decay
         if uncertainty_delta == 0.0:
-            uncertainty_delta = -0.005
+            uncertainty_delta = -0.005 * delta_ticks
             
         self.uncertainty = max(0.0, min(1.0, self.uncertainty + uncertainty_delta))
         
         # --- Physical Integrity: safety/damage ---
         # Decrease with high-speed impacts, recover when stationary and safe
         integrity_delta = 0.0
-        
-        # Check for recent impacts via agent status - WorldState doesn't have status, skip
-        # agent_status = state.agent_state.status
-        # if agent_status == "acting":  # Currently executing an action (touch/move)
-        #     # Could be impact - small decrease
-        #     integrity_delta -= 0.002
         
         # Check nearby objects for collision risk
         for obj in nearby_objects:
@@ -407,12 +408,11 @@ class MockAgent:
             dz = agent_pos[2] - obj_pos[2]
             dist_sq = dx*dx + dy*dy + dz*dz
             if dist_sq < 0.5:  # Very close to object (< ~70cm)
-                integrity_delta -= 0.005
+                integrity_delta -= 0.005 * delta_ticks
         
-        # Recovery when stationary and not near hazards (no agent status in WorldState)
-        # if agent_status == "idle" and integrity_delta == 0.0:
+        # Recovery when stationary and not near hazards
         if integrity_delta == 0.0:
-            integrity_delta = 0.002  # Slow recovery
+            integrity_delta = 0.002 * delta_ticks  # Slow recovery
         
         self.physical_integrity = max(0.0, min(1.0, self.physical_integrity + integrity_delta))
         
@@ -574,62 +574,76 @@ class MockAgent:
             return
 
         # Drive-based arbitration: select action based on drive states
+        action_type = None
+        target_id = ""
+        reason = ""
+        synthetic_target = None
+        
         if self.last_world_state:
             action_type, target_id, reason = self._select_action_by_drives()
             if action_type:
-                # Override the target sequence with drive-selected action
                 # Create a synthetic target for _issue_next_action
                 synthetic_target = {
                     "action_type": action_type,
                     "target_id": target_id,
                     "interrupt_after": False,
                 }
-                # Temporarily replace current target
+        
+        # If drive arbitration selected an action, use it; otherwise fall back to target sequence
+        if synthetic_target is not None:
+            # Use drive-selected action without mutating self.targets
+            # Pass target_index=None so _issue_next_action uses current_target_index
+            # but we'll pass the synthetic action via a special mechanism
+            target_index = self.current_target_index
+            
+            # Reconstruct the parent span context from the correlation base so
+            # deliberation traces are children of the world trace that sent the
+            # WorldState. If correlation lacks trace_id/span_id, a new trace is
+            # started (fails open for telemetry).
+            parent_span_ctx = span_context_from_correlation(self.correlation_base)
+            if parent_span_ctx.is_valid:
+                parent_context = trace.set_span_in_context(
+                    trace.NonRecordingSpan(parent_span_ctx)
+                )
+            else:
+                parent_context = None
+
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span(
+                SPAN_DELIBERATION_REQUEST,
+                context=parent_context,
+                attributes=span_attributes_from_correlation(self.correlation_base),
+            ):
+                # Record arbitration metric with drive-influenced reason
+                self._init_metrics()
+                base_attrs = metric_attributes_from_correlation(self.correlation_base)
+                arb_attrs = dict(base_attrs)
+                arb_attrs[WINNER_LAYER_ATTR] = "drive_arbitration"
+                arb_attrs[REASON_CATEGORY_ATTR] = reason
+                if self._metrics_initialized:
+                    self._counters["agent_world_arbitration_total"].add(1, arb_attrs)
+                
+                # Temporarily swap the target for this action
                 original_target = None
-                if self.current_target_index < len(self.targets):
-                    original_target = self.targets[self.current_target_index]
-                    self.targets[self.current_target_index] = synthetic_target
+                if target_index < len(self.targets):
+                    original_target = self.targets[target_index]
+                    self.targets[target_index] = synthetic_target
                 else:
                     self.targets.append(synthetic_target)
                 
-                # Reconstruct the parent span context from the correlation base so
-                # deliberation traces are children of the world trace that sent the
-                # WorldState. If correlation lacks trace_id/span_id, a new trace is
-                # started (fails open for telemetry).
-                parent_span_ctx = span_context_from_correlation(self.correlation_base)
-                if parent_span_ctx.is_valid:
-                    parent_context = trace.set_span_in_context(
-                        trace.NonRecordingSpan(parent_span_ctx)
-                    )
-                else:
-                    parent_context = None
-
-                tracer = trace.get_tracer(__name__)
-                with tracer.start_as_current_span(
-                    SPAN_DELIBERATION_REQUEST,
-                    context=parent_context,
-                    attributes=span_attributes_from_correlation(self.correlation_base),
-                ):
-                    # Record arbitration metric with drive-influenced reason
-                    self._init_metrics()
-                    base_attrs = metric_attributes_from_correlation(self.correlation_base)
-                    arb_attrs = dict(base_attrs)
-                    arb_attrs[WINNER_LAYER_ATTR] = "drive_arbitration"
-                    arb_attrs[REASON_CATEGORY_ATTR] = reason
-                    if self._metrics_initialized:
-                        self._counters["agent_world_arbitration_total"].add(1, arb_attrs)
-                    
+                try:
                     await self._issue_next_action(
                         self.last_world_state.world_revision,
                         self.last_world_state.simulation_tick,
-                        self.last_world_state.simulation_time
+                        self.last_world_state.simulation_time,
+                        target_index=target_index,
                     )
-                
-                # Restore original target
-                if original_target is not None:
-                    self.targets[self.current_target_index] = original_target
-                elif len(self.targets) > 0:
-                    self.targets.pop()
+                finally:
+                    # Restore the original target at the SAME index
+                    if original_target is not None:
+                        self.targets[target_index] = original_target
+                    elif len(self.targets) > target_index:
+                        self.targets.pop(target_index)
         elif self.current_target_index < len(self.targets):
             # Fallback to original target sequence
             # Reconstruct the parent span context from the correlation base so

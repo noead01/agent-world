@@ -131,5 +131,15 @@ class Goodbye(BaseModel):
     correlation: Optional[CorrelationContext] = None
 
 
+class HealthStatus(BaseModel):
+    """Health status report from world to agent service."""
+    type: str = "HealthStatus"
+    run_id: str
+    timestamp_s: float = Field(ge=0)
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    overall: str = Field(pattern=r"^(healthy|degraded|failed)$")
+    components: Dict[str, Any] = Field(default_factory=dict)
+
+
 # Union type for message parsing
-Message = Observation | Intention | Action | WorldState | Hello | HelloAck | Heartbeat | Error | Goodbye
+Message = Observation | Intention | Action | WorldState | Hello | HelloAck | Heartbeat | Error | Goodbye | HealthStatus

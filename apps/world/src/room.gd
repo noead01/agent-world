@@ -32,7 +32,8 @@ var _light: DirectionalLight3D
 var _last_light_hour: float = -1.0
 
 var _demo_timer: float = 0.0
-var _demo_duration: float = 600.0
+# Configurable demo duration for testing; default 10s for acceptance runs
+var _demo_duration: float = float(OS.get_environment("AGENT_WORLD_DEMO_DURATION")) if OS.get_environment("AGENT_WORLD_DEMO_DURATION") != "" else 10.0
 var _last_print_time: float = 0.0
 var _verbose_logging: bool = false
 var _landed_count: int = 0
@@ -80,6 +81,10 @@ var _mock_controller
 # Health status emission
 var _health_timer: float = 0.0
 const HEALTH_INTERVAL_S: float = 5.0
+
+# Metrics emission (gate to avoid per-tick spam)
+var _metrics_timer: float = 0.0
+const METRICS_INTERVAL_S: float = 1.0  # Emit metrics once per second of wall time
 
 func _ready() -> void:
 	_verbose_logging = OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1"
@@ -358,8 +363,10 @@ func _physics_process(delta: float) -> void:
 			_health_timer = 0.0
 			_protocol_handler.send_health_status()
 		
-		# Emit physics/runtime metrics
-		if _trace:
+		# Emit physics/runtime metrics (gated by METRICS_INTERVAL_S to avoid per-tick spam)
+		_metrics_timer += delta
+		if _trace and _metrics_timer >= METRICS_INTERVAL_S:
+			_metrics_timer = 0.0
 			_trace.record_histogram("agent_world_simulation_tick_duration_seconds", tick_duration_sec, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
 			_trace.set_gauge("agent_world_simulation_tick_total", _sim_time.simulation_tick, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
 			_trace.set_gauge("agent_world_simulation_time_scale", _sim_time.time_scale, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
@@ -1071,6 +1078,6 @@ func _fallback_to_local_mock(run_id: String, random_seed: int) -> void:
 	_setup_local_mock_controller(run_id, random_seed)
 
 func _on_mock_action_issued(action_type_id: String, target_instance_id: String) -> void:
-	# Same handling as _on_action_received but without correlation/span
-	if _agent:
-		_agent.execute_action(action_type_id, target_instance_id)
+	# Observational only - MockController already executed the action before emitting.
+	# This handler is for logging/metrics correlation, not for re-executing actions.
+	print("MOCK_ACTION_ISSUED: action=%s target=%s" % [action_type_id, target_instance_id])

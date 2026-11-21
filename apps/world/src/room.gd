@@ -32,8 +32,9 @@ var _light: DirectionalLight3D
 var _last_light_hour: float = -1.0
 
 var _demo_timer: float = 0.0
-var _demo_duration: float = 10.0
+var _demo_duration: float = 600.0
 var _last_print_time: float = 0.0
+var _verbose_logging: bool = false
 var _landed_count: int = 0
 var _impulse_applied: bool = false
 
@@ -67,17 +68,21 @@ var _agent_template = preload("res://src/agent.gd")
 var _ws_client_template = preload("res://src/websocket_client.gd")
 var _protocol_handler_template = preload("res://src/protocol_handler.gd")
 var _event_recorder_template = preload("res://src/event_recorder.gd")
+var _mock_controller_template = preload("res://src/mock_controller.gd")
 var _event_recorder
 var _active_action_context: Dictionary = {}
 var _active_action_spans: Dictionary = {}  # command_id -> span
 var _agent_session_established: bool = false
 var _agent_session_connected: bool = false
+var _use_local_mock: bool = false
+var _mock_controller
 
 # Health status emission
 var _health_timer: float = 0.0
 const HEALTH_INTERVAL_S: float = 5.0
 
 func _ready() -> void:
+	_verbose_logging = OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1"
 	# Configure project physics settings for Jolt fixed timestep
 	ProjectSettings.set_setting("physics/3d/physics_engine", "JoltPhysics")
 	ProjectSettings.set_setting("physics/common/physics_fps", fixed_timestep_hz)
@@ -163,44 +168,60 @@ func _ready() -> void:
 			"initial_agent_state": initial_agent_state,
 		})
 
-	# Create WebSocketClient for agent service communication
-	var ws_client = _ws_client_template.new()
-	# Allow overriding agent service URL via environment variable for testing
-	var agent_service_url = OS.get_environment("AGENT_SERVICE_URL")
-	if agent_service_url == "":
-		agent_service_url = "ws://localhost:8765"
-	ws_client.url = agent_service_url
-	ws_client.configure_hello(run_id, _agent.agent_id, "", "", "", random_seed)
-	add_child(ws_client)
-	ws_client.connect_to_server()
+	# Check if local mock mode is enabled (for testing without agent service)
+	_use_local_mock = OS.get_environment("AGENT_WORLD_LOCAL_MODE") == "1"
+	
+	if _use_local_mock:
+		print("AGENT_WORLD_LOCAL_MODE=1: Using local MockController")
+		_setup_local_mock_controller(run_id, random_seed)
+	else:
+		# Create WebSocketClient for agent service communication
+		var ws_client = _ws_client_template.new()
+		# Allow overriding agent service URL via environment variable for testing
+		var agent_service_url = OS.get_environment("AGENT_SERVICE_URL")
+		if agent_service_url == "":
+			agent_service_url = "ws://localhost:8765"
+		ws_client.url = agent_service_url
+		ws_client.configure_hello(run_id, _agent.agent_id, "", "", "", random_seed)
+		add_child(ws_client)
+		ws_client.connect_to_server()
 
-	# Create ProtocolHandler with generated run_id
-	var protocol_handler = _protocol_handler_template.new()
-	protocol_handler.agent_id = _agent.agent_id
-	protocol_handler.run_id = run_id
-	protocol_handler.stale_threshold = stale_threshold
-	protocol_handler.world_state_interval_ticks = world_state_interval_ticks
-	protocol_handler.set_websocket_client(ws_client)
-	add_child(protocol_handler)
+		# Create ProtocolHandler with generated run_id
+		var protocol_handler = _protocol_handler_template.new()
+		protocol_handler.agent_id = _agent.agent_id
+		protocol_handler.run_id = run_id
+		protocol_handler.stale_threshold = stale_threshold
+		protocol_handler.world_state_interval_ticks = world_state_interval_ticks
+		protocol_handler.set_websocket_client(ws_client)
+		add_child(protocol_handler)
 
-	# Store references
-	_ws_client = ws_client
-	_protocol_handler = protocol_handler
+		# Store references
+		_ws_client = ws_client
+		_protocol_handler = protocol_handler
+		
+		# Connect WebSocket signals
+		ws_client.connected.connect(_on_agent_session_connected)
+		ws_client.disconnected.connect(_on_agent_session_disconnected)
+		
+		# Fallback to local mock if connection fails after 3 seconds
+		var timer = Timer.new()
+		timer.one_shot = true
+		timer.wait_time = 3.0
+		timer.timeout.connect(func(): _fallback_to_local_mock(run_id, random_seed))
+		add_child(timer)
+		timer.start()
 
 	# Trace context for the world runtime.
 	_trace = _trace_template.new()
 	# Use call_deferred to ensure trace is set after protocol_handler._ready() runs
-	_protocol_handler.call_deferred("set_trace", _trace)
+	if _protocol_handler:
+		_protocol_handler.call_deferred("set_trace", _trace)
 
-	# Connect ProtocolHandler signals
-	_protocol_handler.action_received.connect(_on_action_received)
-	_protocol_handler.action_result_received.connect(_on_action_result)
-	_protocol_handler.stale_request_rejected.connect(_on_stale_request)
-
-	# The external agent service is the only source of agent behavior, so a run
-	# that never completes the handshake cannot produce a valid experiment.
-	ws_client.connected.connect(_on_agent_session_connected)
-	ws_client.disconnected.connect(_on_agent_session_disconnected)
+	# Connect ProtocolHandler signals (only if using WebSocket mode)
+	if _protocol_handler:
+		_protocol_handler.action_received.connect(_on_action_received)
+		_protocol_handler.action_result_received.connect(_on_action_result)
+		_protocol_handler.stale_request_rejected.connect(_on_stale_request)
 
 	set_process(true)
 	set_physics_process(true)
@@ -419,7 +440,7 @@ func _physics_process(delta: float) -> void:
 			print("  IMPULSE applied to obj_metal_sphere at t=%.1fs" % [_demo_timer])
 
 	# Print status once per second with simulation time
-	if _demo_timer - _last_print_time >= 1.0:
+	if _verbose_logging and _demo_timer - _last_print_time >= 1.0:
 		_last_print_time = _demo_timer
 		var settled: Array[String] = get_settled_objects()
 		print("T+: wall=%.1fs sim=%.3f tick=%d paused=%s scale=%.1f tod=%.1f settled=%d/%d landed=%d" % [
@@ -809,6 +830,7 @@ func _spawn_objects() -> void:
 		var obj = load("res://src/rigid_object.gd").new()
 		obj.configure(defn)
 		obj.position = defn["position"]
+		_add_object_visual(obj, defn)
 		# Enable contact monitoring so body_entered signals fire on collisions
 		obj.contact_monitor = true
 		obj.max_contacts_reported = 1
@@ -817,6 +839,59 @@ func _spawn_objects() -> void:
 
 		obj.body_entered.connect(func(other_body): _on_object_body_entered(obj, other_body))
 		obj.object_landed.connect(func(instance_id): _on_object_landed(instance_id))
+
+func _add_object_visual(obj: RigidBody3D, defn: Dictionary) -> void:
+	var dimensions: Dictionary = defn.get("dimensions_m", {})
+	var sx := float(dimensions.get("x", 0.5))
+	var sy := float(dimensions.get("y", 0.5))
+	var sz := float(dimensions.get("z", 0.5))
+	var visual := MeshInstance3D.new()
+	match String(defn.get("shape_type", "box")):
+		"sphere":
+			var sphere := SphereMesh.new()
+			sphere.radius = sx * 0.5
+			sphere.height = sx
+			visual.mesh = sphere
+		"cylinder":
+			var cylinder := CylinderMesh.new()
+			cylinder.top_radius = sx
+			cylinder.bottom_radius = sx
+			cylinder.height = sy
+			visual.mesh = cylinder
+		_:
+			var box := BoxMesh.new()
+			box.size = Vector3(sx, sy, sz)
+			visual.mesh = box
+
+	var material := StandardMaterial3D.new()
+	match String(defn.get("type_id", "")):
+		"wood_cube":
+			material.albedo_color = Color("#b7763e")
+			material.roughness = 0.82
+		"metal_sphere":
+			material.albedo_color = Color("#8db8d0")
+			material.metallic = 0.72
+			material.roughness = 0.24
+		"glass_box":
+			material.albedo_color = Color(0.35, 0.82, 0.94, 0.58)
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			material.roughness = 0.12
+		"rubber_cylinder":
+			material.albedo_color = Color("#dd6846")
+			material.roughness = 0.92
+	visual.material_override = material
+	obj.add_child(visual)
+
+	var label := Label3D.new()
+	label.name = "ObjectLabel"
+	label.text = String(defn.get("name", defn.get("type_id", "Object")))
+	label.position = Vector3(0, sy * 0.5 + 0.3, 0)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size = 28
+	label.pixel_size = 0.006
+	label.outline_size = 5
+	label.modulate = Color("#f4f0df")
+	obj.add_child(label)
 
 func _on_object_body_entered(obj, other_body: Node) -> void:
 	var other_id: String = ""
@@ -912,7 +987,34 @@ func _spawn_agent() -> void:
 	capsule_mesh.radius = 0.3
 	capsule_mesh.height = 1.0
 	agent_mesh.mesh = capsule_mesh
+	var agent_material := StandardMaterial3D.new()
+	agent_material.albedo_color = Color("#369cff")
+	agent_material.metallic = 0.12
+	agent_material.roughness = 0.3
+	agent_mesh.material_override = agent_material
 	_agent.add_child(agent_mesh)
+
+	var agent_label := Label3D.new()
+	agent_label.name = "AgentLabel"
+	agent_label.text = _agent.agent_name
+	agent_label.position = Vector3(0, 0.95, 0)
+	agent_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	agent_label.font_size = 32
+	agent_label.pixel_size = 0.006
+	agent_label.outline_size = 6
+	agent_label.modulate = Color("#f4f0df")
+	_agent.add_child(agent_label)
+
+	# Add first-person camera at agent's forehead (eye level, slightly forward)
+	# Agent capsule: height=1.0 (y: -0.5 to 0.5), radius=0.3
+	# Forehead/eye position: y=0.35 (eye level), z=-0.35 (forward, -Z is forward when heading=PI)
+	var agent_camera = Camera3D.new()
+	agent_camera.name = "AgentCamera"
+	agent_camera.current = true
+	# Position at forehead: slightly below top (0.5), slightly forward of center (-radius)
+	agent_camera.position = Vector3(0, 0.35, -0.35)
+	# Ensure camera rotates with agent (inherits rotation from parent)
+	_agent.add_child(agent_camera)
 
 	# Connect Agent action lifecycle signals to ProtocolHandler (to send results to agent service)
 	# and to EventRecorder (to persist action events to run record)
@@ -926,3 +1028,49 @@ func _spawn_agent() -> void:
 	# MockController has been removed.
 
 	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])
+
+func _setup_local_mock_controller(run_id: String, random_seed: int) -> void:
+	# Create and configure MockController for local testing
+	_mock_controller = _mock_controller_template.new()
+	_mock_controller.agent = _agent
+	add_child(_mock_controller)
+	
+	# Set up deterministic target sequence matching agent service policy
+	var targets: Array = [
+		{"target_id": "obj_nonexistent", "action_type": "touch"},
+		{"target_id": "", "action_type": "wait"},
+	]
+	for target_id in AGENT_SERVICE_TARGET_IDS:
+		targets.append({"target_id": target_id, "action_type": "move"})
+		var touch := {"target_id": target_id, "action_type": "touch"}
+		if target_id in AGENT_SERVICE_INTERRUPT_TARGET_IDS:
+			touch["interrupt_after"] = true
+		targets.append(touch)
+	
+	_mock_controller.set_targets(targets)
+	_mock_controller.action_cooldown_s = 2.0  # Slower for visibility
+	
+	# Connect MockController signals to same handlers as ProtocolHandler
+	_mock_controller.controller_action_issued.connect(_on_mock_action_issued)
+	print("Local MockController configured with %d targets" % [targets.size()])
+
+func _fallback_to_local_mock(run_id: String, random_seed: int) -> void:
+	if _use_local_mock or _mock_controller != null:
+		return  # Already using mock
+	if _ws_client != null and _ws_client.get_connection_state() == WebSocketClient.ConnectionState.CONNECTED:
+		return  # Connected successfully, don't fallback
+	print("WebSocket connection failed, falling back to local MockController")
+	_use_local_mock = true
+	# Clean up WebSocket client
+	if _ws_client != null:
+		_ws_client.queue_free()
+		_ws_client = null
+	if _protocol_handler != null:
+		_protocol_handler.queue_free()
+		_protocol_handler = null
+	_setup_local_mock_controller(run_id, random_seed)
+
+func _on_mock_action_issued(action_type_id: String, target_instance_id: String) -> void:
+	# Same handling as _on_action_received but without correlation/span
+	if _agent:
+		_agent.execute_action(action_type_id, target_instance_id)

@@ -6,7 +6,7 @@ signal controller_action_issued(action_type_id: String, target_instance_id: Stri
 
 @export_group("Controller")
 var agent
-var targets: Array[Dictionary] = []
+var targets: Array = []
 var action_cooldown_s: float = 0.5
 var current_target_index: int = 0
 
@@ -87,7 +87,7 @@ func add_target(instance_id: String, action_type: String = "move") -> void:
 		"action_type": action_type,
 	})
 
-func set_targets(target_list: Array[Dictionary]) -> void:
+func set_targets(target_list: Array) -> void:
 	targets = target_list.duplicate()
 	current_target_index = 0
 

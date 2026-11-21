@@ -46,6 +46,9 @@ func _create_peer() -> void:
 func get_trace_id() -> String:
 	return _trace_id
 
+func get_connection_state() -> ConnectionState:
+	return _state
+
 func configure_hello(run_id: String, agent_id: String, experiment_id: String = "", scenario_id: String = "", scenario_version: String = "", random_seed: int = -1) -> void:
 	_hello_run_id = run_id
 	_hello_agent_id = agent_id
@@ -140,7 +143,8 @@ func _send_hello() -> void:
 		hello["random_seed"] = _hello_random_seed
 		_hello_message["random_seed"] = _hello_random_seed
 	_send(hello)
-	print("MSG_JSON: %s" % [JSON.stringify(hello)])
+	if OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1":
+		print("MSG_JSON: %s" % [JSON.stringify(hello)])
 
 func _handle_incoming(msg: Dictionary) -> void:
 	var msg_type = msg.get("type", "")
@@ -285,7 +289,8 @@ func _send(message: Dictionary) -> void:
 	var err = _peer.send_text(text)
 	if err != OK:
 		print("WebSocketClient: send failed: %s" % [err])
-	print("MSG_JSON: %s" % [text])
+	if OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1":
+		print("MSG_JSON: %s" % [text])
 
 func close() -> void:
 	# Intentional shutdown is terminal; pending backoff timers must not try to

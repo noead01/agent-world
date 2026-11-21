@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "health_status.schema.json",
+  "title": "HealthStatus",
+  "type": "object",
+  "properties": {
+    "type": { "const": "HealthStatus" },
+    "run_id": { "$ref": "run_id.schema.json" },
+    "timestamp_s": { "type": "number", "minimum": 0 },
+    "version": { "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "overall": { "enum": ["healthy", "degraded", "failed"] },
+    "components": {
+      "type": "object",
+      "properties": {
+        "physics": { "$ref": "component_health.schema.json#/definitions/physics" },
+        "recorder": { "$ref": "component_health.schema.json#/definitions/recorder" },
+        "telemetry_exporter": { "$ref": "component_health.schema.json#/definitions/telemetry_exporter" },
+        "artifact_store": { "$ref": "component_health.schema.json#/definitions/artifact_store" },
+        "evaluator": { "$ref": "component_health.schema.json#/definitions/evaluator" }
+      },
+      "required": ["physics", "recorder", "telemetry_exporter"]
+    }
+  },
+  "required": ["type", "run_id", "timestamp_s", "version", "overall", "components"]
+}

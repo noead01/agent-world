@@ -26,8 +26,23 @@ except ImportError:  # pragma: no cover - opentelemetry not installed
 from src.tracing import (
     get_tracer,
     init_tracing,
+    shutdown_tracing,
     span_attributes_from_correlation,
     start_span,
+    _TRACER,
+    _TRACER_PROVIDER,
+)
+
+
+def reset_tracing():
+    """Reset global tracing state."""
+    global _TRACER, _TRACER_PROVIDER
+    import src.tracing as tracing_module
+    tracing_module._TRACER = None
+    tracing_module._TRACER_PROVIDER = None
+    trace.set_tracer_provider(TracerProvider())
+
+from src.tracing import (
     TRACE_ID_ATTR,
     SPAN_ID_ATTR,
     span_context_from_correlation,
@@ -75,25 +90,40 @@ class TestBoundedSpanAttributes(unittest.TestCase):
     """Span attributes must be bounded cardinality (no run_id, object_id, etc. as labels)."""
 
     @unittest.skipIf(trace is None, "opentelemetry not installed")
-    def test_span_attributes_do_not_include_high_cardinality_ids(self):
-        init_tracing()
-        tracer = get_tracer()
-
-        with tracer.start_as_current_span(
-            "agent.deliberation.request",
-            attributes={
-                "agent.id": "wanderer_01",
-                "run.id": "run_001",
-                "action.type": "move",
-            },
-        ) as span:
-            attrs = dict(span.attributes or {})
-            # Bounded attributes are allowed; high-cardinality IDs as *labels*
-            # are discouraged but the span may carry them as attributes for
-            # correlation. The key test is that span creation succeeds with
-            # bounded attribute keys.
-            self.assertIn("agent.id", attrs)
-            self.assertIn("action.type", attrs)
+    def test_span_attributes_from_correlation_are_bounded(self):
+        """Test that span_attributes_from_correlation produces bounded attributes."""
+        corr = CorrelationContext(
+            experiment_id="exp_test",
+            scenario_id="scenario_test",
+            scenario_version="1.0.0",
+            run_id="run_test",  # High cardinality - should NOT be in span attributes
+            agent_id="agent_test",
+            world_revision=1,
+            simulation_tick=42,
+            simulation_time=0.7,
+            trace_id="ab" * 16,
+            span_id="cd" * 8,
+            component="world",
+            component_version="1.0.0",
+        )
+        attrs = span_attributes_from_correlation(corr)
+        
+        # Bounded attributes present
+        self.assertIn("experiment.id", attrs)
+        self.assertIn("scenario.id", attrs)
+        self.assertIn("scenario.version", attrs)
+        self.assertIn("agent.id", attrs)
+        self.assertIn("world.revision", attrs)
+        self.assertIn("simulation.tick", attrs)
+        self.assertIn("simulation.time", attrs)
+        self.assertIn("component", attrs)
+        self.assertIn("component.version", attrs)
+        self.assertIn("trace_id", attrs)
+        self.assertIn("span_id", attrs)
+        
+        # High cardinality IDs NOT present
+        self.assertNotIn("run.id", attrs)
+        self.assertNotIn("run_id", attrs)
 
 
 class TestCorrelationToSpanAttributes(unittest.TestCase):

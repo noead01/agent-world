@@ -29,21 +29,36 @@ def _hello_ack(hello):
 class AgentServiceStub:
     """Minimal agent service: optionally complete the Hello handshake."""
 
-    def __init__(self, acknowledge=True, disconnect_after_ack=False):
+    def __init__(self, acknowledge=True, disconnect_after_ack=False, port=0):
         self._acknowledge = acknowledge
         self._disconnect_after_ack = disconnect_after_ack
+        self._port = port
+        self._actual_port = None
         self._server = None
         self._thread = None
 
     def __enter__(self):
         from websockets.sync.server import serve
+        import socket
 
-        self._server = serve(self._handle, "localhost", 8765)
+        # Create a socket with SO_REUSEADDR to avoid TIME_WAIT issues
+        # Use port 0 to let OS assign a free port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("localhost", 0))
+        self._actual_port = sock.getsockname()[1]
+        sock.listen()
+        
+        self._server = serve(self._handle, sock=sock)
         self._thread = threading.Thread(
             target=self._server.serve_forever, daemon=True
         )
         self._thread.start()
         return self
+    
+    @property
+    def port(self) -> int:
+        return self._actual_port
 
     def _handle(self, connection):
         # Godot closes abruptly when the run quits; that is expected here.
@@ -96,8 +111,12 @@ def test_room_persists_a_complete_run():
     """Run the public world scene and validate its actual persisted records."""
     with tempfile.TemporaryDirectory() as temp_dir:
         data_home = Path(temp_dir) / "godot-data"
-        with AgentServiceStub():
-            _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+        with AgentServiceStub() as stub:
+            _run_godot(
+                data_home, 
+                "--fixed-fps", "60", "--quit-after", "900",
+                extra_environment={"AGENT_SERVICE_URL": f"ws://localhost:{stub.port}"}
+            )
 
         run_file = _only_run_file(data_home)
         record = RunRecord.load(str(run_file.parent))
@@ -137,8 +156,12 @@ def test_run_without_agent_session_is_aborted():
     """An unavailable agent service must not produce a valid-looking run."""
     with tempfile.TemporaryDirectory() as temp_dir:
         data_home = Path(temp_dir) / "godot-data"
-        with AgentServiceStub(acknowledge=False):
-            _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+        with AgentServiceStub(acknowledge=False) as stub:
+            _run_godot(
+                data_home, 
+                "--fixed-fps", "60", "--quit-after", "900",
+                extra_environment={"AGENT_SERVICE_URL": f"ws://localhost:{stub.port}"}
+            )
 
         run_file = _only_run_file(data_home)
         record = RunRecord.load(str(run_file.parent))
@@ -154,8 +177,12 @@ def test_run_lost_after_handshake_is_aborted():
     """A session that disconnects after HelloAck must not yield a valid run."""
     with tempfile.TemporaryDirectory() as temp_dir:
         data_home = Path(temp_dir) / "godot-data"
-        with AgentServiceStub(disconnect_after_ack=True):
-            _run_godot(data_home, "--fixed-fps", "60", "--quit-after", "900")
+        with AgentServiceStub(disconnect_after_ack=True) as stub:
+            _run_godot(
+                data_home, 
+                "--fixed-fps", "60", "--quit-after", "900",
+                extra_environment={"AGENT_SERVICE_URL": f"ws://localhost:{stub.port}"}
+            )
 
         run_file = _only_run_file(data_home)
         record = RunRecord.load(str(run_file.parent))

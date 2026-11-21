@@ -1,11 +1,11 @@
-"""OpenTelemetry tracing for the agent service (TODO-0011).
+"""OpenTelemetry tracing and metrics for the agent service (TODO-0011, TODO-0012).
 
-Initializes a tracer provider with a console exporter for local development.
+Initializes a tracer/meter provider with console exporters for local development.
 Exporter failure fails open: it never blocks simulation or agent behavior.
 
-Spans use stable names from docs/observability.md and bounded attributes.
+Spans/metrics use stable names from docs/observability.md and bounded attributes.
 High-cardinality identifiers (run_id, object_id, request_id) are carried in
-the correlation context, not as span attributes.
+the correlation context, not as span/metric attributes.
 """
 from __future__ import annotations
 
@@ -15,8 +15,10 @@ from typing import Optional
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from src.schemas import CorrelationContext
+from src.metrics import init_metrics, shutdown_metrics
 
 _TRACER: Optional[trace.Tracer] = None
 _TRACER_PROVIDER: Optional[TracerProvider] = None
@@ -50,19 +52,38 @@ SPAN_PERCEPTION_COLLECT = "world.perception.collect"
 def init_tracing(
     service_name: str = "agent-world-agent",
     service_version: str = "1.0.0",
+    profile: str = "standard",  # minimal, standard, diagnostic
 ) -> None:
-    """Initialize the OpenTelemetry tracer provider.
+    """Initialize the OpenTelemetry tracer and meter providers.
 
     Fails open: if the exporter cannot be created, telemetry is silently
     disabled rather than blocking the agent service.
+
+    Args:
+        service_name: Service name for telemetry.
+        service_version: Service version for telemetry.
+        profile: Observability profile (minimal, standard, diagnostic).
+                 minimal: errors only, coarse metrics, 1min export interval
+                 standard: 10% trace sampling, 30s metric export
+                 diagnostic: 100% trace sampling, 5s metric export
     """
     global _TRACER, _TRACER_PROVIDER
 
     if _TRACER is not None:
         return
 
+    # Profile-based sampler
+    if profile == "minimal":
+        sampler = ParentBased(TraceIdRatioBased(0.0))  # Errors only via parent
+    elif profile == "standard":
+        sampler = ParentBased(TraceIdRatioBased(0.1))  # 10%
+    elif profile == "diagnostic":
+        sampler = ParentBased(TraceIdRatioBased(1.0))  # 100%
+    else:
+        sampler = ParentBased(TraceIdRatioBased(0.1))
+
     try:
-        provider = TracerProvider()
+        provider = TracerProvider(sampler=sampler)
         # Console exporter for local development. A collector/OTLP exporter
         # can be added without changing instrumentation.
         exporter = ConsoleSpanExporter()
@@ -74,6 +95,19 @@ def init_tracing(
 
     _TRACER = trace.get_tracer(service_name, service_version)
 
+    # Initialize metrics with same fail-open semantics
+    try:
+        # Profile-based export interval
+        if profile == "minimal":
+            export_interval_millis = 60000  # 1 minute
+        elif profile == "diagnostic":
+            export_interval_millis = 5000   # 5 seconds
+        else:
+            export_interval_millis = 30000  # 30 seconds
+        init_metrics(service_name, service_version, export_interval_millis)
+    except Exception:  # noqa: BLE001
+        pass
+
 
 def get_tracer() -> trace.Tracer:
     """Return the tracer, initializing if needed."""
@@ -83,7 +117,7 @@ def get_tracer() -> trace.Tracer:
 
 
 def shutdown_tracing() -> None:
-    """Shutdown the tracer provider (called on service stop)."""
+    """Shutdown the tracer and meter providers (called on service stop)."""
     global _TRACER, _TRACER_PROVIDER
     if _TRACER_PROVIDER is not None:
         try:
@@ -92,6 +126,12 @@ def shutdown_tracing() -> None:
             pass
     _TRACER = None
     _TRACER_PROVIDER = None
+
+    # Shutdown metrics
+    try:
+        shutdown_metrics()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def span_attributes_from_correlation(correlation: CorrelationContext) -> dict:

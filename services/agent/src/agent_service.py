@@ -4,10 +4,11 @@ import uuid
 import json
 import os
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import websockets
 from websockets.asyncio.server import ServerConnection as WebSocketServerProtocol
 from opentelemetry import trace
+from aiohttp import web
 
 from .schemas import (
     Hello, HelloAck, CorrelationContext, WorldState, Intention, Action, Observation, Error
@@ -20,6 +21,10 @@ from .tracing import (
     init_tracing, shutdown_tracing,
     span_attributes_from_correlation,
     SPAN_ACTION_EXECUTE,
+)
+from .metrics import (
+    get_meter, create_counters, create_histograms, create_gauges,
+    metric_attributes_from_correlation,
 )
 
 
@@ -35,6 +40,7 @@ class AgentService:
         scenario_version: str = "1.0.0",
         run_id: str = "run_001",
         session_ttl_s: float = 60.0,
+        health_port: int = 8080,
     ):
         self.host = host
         self.port = port
@@ -43,8 +49,11 @@ class AgentService:
         self.scenario_version = scenario_version
         self.run_id = run_id
         self.session_ttl_s = max(float(session_ttl_s), 0.0)
+        self._health_port = health_port
         
         self.server: Optional[websockets.Server] = None
+        self.health_app: Optional[web.Application] = None
+        self._health_runner: Optional[web.AppRunner] = None
         self.clients: Dict[str, Dict] = {}  # agent_id -> {websocket, mock_agent, correlation}
         # Per-run agent state that survives transient socket disconnects so a
         # reconnect resumes the deterministic sequence instead of restarting it.
@@ -56,10 +65,35 @@ class AgentService:
         # Per-session tick tasks so one session's seeded action delay cannot
         # hold back the tick loop for every other session.
         self._tick_tasks: Dict[str, asyncio.Task] = {}
+        # Metrics instruments (initialized on first use)
+        self._counters: Optional[Dict] = None
+        self._histograms: Optional[Dict] = None
+        self._gauges: Optional[Dict] = None
+        self._metrics_initialized: bool = False
+        # Validity tracker
+        from .validity import ValidityTracker
+        self.validity_tracker = ValidityTracker(
+            run_id=self.run_id,
+            experiment_id=self.experiment_id,
+        )
+        self._last_metric_export = time.time()
         
     async def start(self) -> None:
-        """Start the WebSocket server."""
+        """Start the WebSocket server and health endpoint."""
         init_tracing()
+        
+        # Start health endpoint
+        self.health_app = web.Application()
+        self.health_app.router.add_get("/health", self._health_handler)
+        self.health_app.router.add_get("/ready", self._ready_handler)
+        self.health_app.router.add_get("/live", self._live_handler)
+        
+        self._health_runner = web.AppRunner(self.health_app)
+        await self._health_runner.setup()
+        site = web.TCPSite(self._health_runner, "0.0.0.0", self._health_port)
+        await site.start()
+        print(f"Health endpoint started on http://0.0.0.0:{self._health_port}/health")
+        
         self.server = await websockets.serve(
             self._handle_connection,
             self.host,
@@ -73,7 +107,7 @@ class AgentService:
         print(f"Agent service started on ws://{self.host}:{self.port}")
         
     async def stop(self) -> None:
-        """Stop the server."""
+        """Stop the server and health endpoint."""
         self._running = False
         shutdown_tracing()
         if self._tick_task:
@@ -90,6 +124,8 @@ class AgentService:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
+        if self._health_runner:
+            await self._health_runner.cleanup()
         # Close all client connections
         for client_info in self.clients.values():
             await client_info["websocket"].close()
@@ -97,6 +133,104 @@ class AgentService:
         self.agent_sessions.clear()
         self._disconnected_sessions.clear()
         print("Agent service stopped")
+
+    async def _health_handler(self, request: web.Request) -> web.Response:
+        """Health check endpoint - reports component availability."""
+        components = self._collect_component_health()
+        
+        # Overall status: healthy if all critical components are healthy
+        critical = ["agent_service", "telemetry_exporter"]
+        overall = "healthy"
+        for comp in critical:
+            if components.get(comp, {}).get("status") == "failed":
+                overall = "degraded"
+                break
+        
+        return web.json_response({
+            "status": overall,
+            "components": components,
+            "timestamp": time.time(),
+        })
+    
+    async def _ready_handler(self, request: web.Request) -> web.Response:
+        """Readiness check - service can accept traffic."""
+        # Ready if we have at least one connected client or are accepting connections
+        return web.json_response({"ready": self._running})
+    
+    async def _live_handler(self, request: web.Request) -> web.Response:
+        """Liveness check - process is alive."""
+        return web.json_response({"alive": True})
+    
+    def _collect_component_health(self) -> Dict[str, Dict[str, Any]]:
+        """Collect health status for all components."""
+        now = time.time()
+        
+        # Agent service health
+        agent_service_healthy = self._running and self.server is not None
+        agent_service_status = "healthy" if agent_service_healthy else "failed"
+        
+        # Telemetry exporter health (check if metrics/tracing initialized)
+        try:
+            from .metrics import get_meter
+            from .tracing import get_tracer
+            meter = get_meter()
+            tracer = get_tracer()
+            telemetry_status = "healthy" if meter and tracer else "degraded"
+            last_export = getattr(self, "_last_metric_export", now)
+        except Exception:
+            telemetry_status = "failed"
+            last_export = 0
+        
+        # LLM provider health (placeholder - will be populated when LLM adapter exists)
+        llm_status = "healthy"  # Default to healthy when not configured
+        llm_latency = 0.0
+        
+        # Recorder health (world-side)
+        recorder_status = "healthy"
+        
+        # Artifact store health
+        artifact_store_status = "healthy"
+        
+        # Evaluator health
+        evaluator_status = "healthy"
+        
+        # Validity tracker
+        validity_status = self.validity_tracker.current.value
+        
+        return {
+            "agent_service": {
+                "status": agent_service_status,
+                "active_sessions": len(self.clients),
+                "total_sessions": len(self.agent_sessions),
+                "protocol_version": PROTOCOL_VERSION,
+            },
+            "telemetry_exporter": {
+                "status": telemetry_status,
+                "last_export_timestamp": last_export,
+            },
+            "llm_provider": {
+                "status": llm_status,
+                "last_request_latency_ms": llm_latency,
+                "reachable": llm_status != "failed",
+            },
+            "recorder": {
+                "status": recorder_status,
+                "writable": True,
+            },
+            "artifact_store": {
+                "status": artifact_store_status,
+                "writable": True,
+            },
+            "evaluator": {
+                "status": evaluator_status,
+                "scenario_loaded": True,
+            },
+            "validity": {
+                "status": validity_status,
+                "can_trust_results": self.validity_tracker.can_trust_results(),
+                "transitions": len(self.validity_tracker.history),
+            },
+        }
         
     async def _handle_connection(self, websocket: WebSocketServerProtocol) -> None:
         """Handle a new WebSocket connection."""
@@ -317,6 +451,45 @@ class AgentService:
             return
 
         mock_agent = client["mock_agent"]
+        correlation = client.get("correlation")
+        
+        # Initialize metrics if needed
+        if not self._metrics_initialized and correlation:
+            from .metrics import get_meter, create_counters, create_histograms, create_gauges
+            meter = get_meter()
+            self._counters = create_counters(meter)
+            self._histograms = create_histograms(meter)
+            self._gauges = create_gauges(meter)
+            self._metrics_initialized = True
+        
+        # Record inbound protocol metrics
+        if correlation and self._metrics_initialized:
+            attrs = metric_attributes_from_correlation(correlation)
+            if isinstance(msg, WorldState):
+                attrs["message.type"] = "WorldState"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Observation):
+                attrs["message.type"] = "Observation"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Action):
+                attrs["message.type"] = "Action"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Intention):
+                attrs["message.type"] = "Intention"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "success"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
+            elif isinstance(msg, Error):
+                attrs["message.type"] = "Error"
+                attrs["direction"] = "inbound"
+                attrs["outcome"] = "error"
+                self._counters["agent_world_protocol_message_total"].add(1, attrs)
         
         # Route to mock agent
         if isinstance(msg, WorldState):

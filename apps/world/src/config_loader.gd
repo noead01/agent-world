@@ -16,11 +16,12 @@ static func load_config(config_path: String = "res://config/world_config.json") 
 		return
 	var json_text = file.get_as_text()
 	file.close()
-	var parse_result = JSON.parse_string(json_text)
-	if not parse_result.error == OK:
-		push_error("ConfigLoader: Failed to parse JSON: " + parse_result.error_string)
+	# JSON.parse_string() returns the parsed value directly, or null on failure
+	var parsed = JSON.parse_string(json_text)
+	if parsed == null:
+		push_error("ConfigLoader: Failed to parse JSON")
 		return
-	_config = parse_result
+	_config = parsed
 	_loaded = true
 
 static func get_value(path: String, default = null):

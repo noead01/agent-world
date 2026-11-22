@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="b2c3d4e5f6a7b8c9"]
 
-[ext_resource path="res://src/room.gd" type="Script" id=1]
+[ext_resource path="res://src/benchmark_room.gd" type="Script" id=1]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
 albedo_color = Color(0.2, 0.28, 0.31, 1)

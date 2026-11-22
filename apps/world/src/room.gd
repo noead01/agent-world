@@ -36,6 +36,7 @@ var objects: Array = []
 var _sim_time_template = preload("res://src/simulation_time.gd")
 var _trace_template = preload("res://src/trace.gd")
 var _sim_time
+var _sim_day_cycle_duration_s: float = 240.0  # Stored from config, applied after _sim_time creation
 var _light: DirectionalLight3D
 var _last_light_hour: float = -1.0
 
@@ -101,6 +102,22 @@ var _metrics_interval_s: float = 1.0  # Emit metrics once per second of wall tim
 # Verbose logging flag
 var _verbose_logging: bool = false
 
+# Demo timing variables (used by _process_demo in subclasses)
+var _demo_timer: float = 0.0
+var _demo_duration: float = 10.0
+var _demo_pause_time: float = 2.0
+var _demo_resume_time: float = 4.0
+var _demo_scale_time: float = 6.0
+var _demo_reset_time: float = 8.0
+var _demo_scale_factor: float = 2.0
+var _demo_impulse_time: float = 1.0
+var _demo_impulse_target_id: String = "obj_metal_sphere"
+var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
+var _demo_step: int = 0
+var _impulse_applied: bool = false
+var _last_print_time: float = 0.0
+var _landed_count: int = 0
+
 func _ready() -> void:
 	# Load configuration from JSON file
 	_config_loader.load_config()
@@ -122,6 +139,8 @@ func _ready() -> void:
 	_sim_time = _sim_time_template.new()
 	add_child(_sim_time)
 	_sim_time.time_of_day_changed.connect(_animate_day_night)
+	# Apply stored simulation config (day_cycle_duration_s from config file)
+	_sim_time.day_cycle_duration_s = _sim_day_cycle_duration_s
 
 	# Find the directional light for day/night animation
 	_light = get_node_or_null("DirectionalLight3D")
@@ -205,11 +224,10 @@ func _ready() -> void:
 			agent_service_url = "ws://localhost:8765"
 		ws_client.url = agent_service_url
 		ws_client.configure_hello(run_id, _agent.agent_id, _agent.agent_type_id)
-		ws_client.hello_ack_received.connect(_on_hello_ack)
-		ws_client.observation_received.connect(_on_observation_received)
-		ws_client.action_result_received.connect(_on_action_result)
-		ws_client.stale_request_rejected.connect(_on_stale_request)
-		ws_client.connection_failed.connect(_on_connection_failed)
+		# WebSocketClient signals: connected, disconnected, message_received, error
+		ws_client.connected.connect(_on_hello_ack)
+		ws_client.message_received.connect(_on_message_received)
+		ws_client.error.connect(_on_connection_failed)
 		ws_client.disconnected.connect(_on_disconnected)
 		add_child(ws_client)
 		_ws_client = ws_client
@@ -223,8 +241,8 @@ func _ready() -> void:
 		protocol_handler.observation_ready.connect(_send_observation)
 		protocol_handler.intention_ready.connect(_send_intention)
 		protocol_handler.action_ready.connect(_send_action)
-		protocol_handler.action_result_received.connect(_on_action_result)
-		protocol_handler.stale_request_rejected.connect(_on_stale_request)
+		# Note: action_result_received and stale_request_rejected are handled
+		# by _on_message_received routing to protocol_handler
 		add_child(protocol_handler)
 		_protocol_handler = protocol_handler
 		
@@ -330,10 +348,10 @@ func _load_config_values() -> void:
 		_drive_prediction_error_medium = pred_thresholds.get("medium", 0.01)
 		_drive_unexpected_movement_threshold = pred_thresholds.get("unexpected_movement", 0.25)
 	
-	# Load simulation config
+	# Store simulation config for later application (after _sim_time is created)
 	var sim_config = _config_loader.get_simulation()
 	if sim_config:
-		_sim_time.day_cycle_duration_s = sim_config.get("day_cycle_duration_s", 240.0)
+		_sim_day_cycle_duration_s = sim_config.get("day_cycle_duration_s", 240.0)
 	
 	# Load metrics config
 	var metrics_config = _config_loader.get_metrics()
@@ -493,6 +511,21 @@ func _spawn_agent() -> void:
 	_agent.name = "Agent"
 	_agent.global_position = Vector3(0, -12.9, 1.5)
 	add_child(_agent)
+	
+	# Add first-person camera at agent's forehead (eye level, slightly forward)
+	# Agent capsule: height=1.0 (y: -0.5 to 0.5), radius=0.3
+	# Forehead/eye position: y=0.35 (eye level), z=-0.35 (forward, -Z is forward when heading=PI)
+	# Agent navigate_toward uses heading=0 -> world +Z, but Camera3D looks along local -Z
+	# So we rotate the camera by PI (180 degrees) to face the travel direction
+	var agent_camera = Camera3D.new()
+	agent_camera.name = "AgentCamera"
+	agent_camera.current = true
+	# Position at forehead: slightly below top (0.5), slightly forward of center (-radius)
+	agent_camera.position = Vector3(0, 0.35, -0.35)
+	# Rotate 180 degrees around Y so camera faces travel direction
+	# (Agent heading=0 moves toward +Z, camera looks along -Z local)
+	agent_camera.rotation.y = PI
+	_agent.add_child(agent_camera)
 
 func _animate_day_night(hour: float) -> void:
 	if _light and abs(hour - _last_light_hour) > 0.1:
@@ -610,19 +643,32 @@ func _vector_to_dict(v: Vector3) -> Dictionary:
 
 func _append_domain_event(event_family: String, instance_id: String, payload: Dictionary) -> void:
 	if _event_recorder:
-		_event_recorder.append_event(event_family, instance_id, payload, _world_revision)
+		var event: Dictionary = {
+			"event_family": event_family,
+			"instance_id": instance_id,
+			"payload": payload,
+			"world_revision": _world_revision,
+			"run_id": _event_recorder._current_run_id if _event_recorder else "",
+			"timestamp_s": _sim_time.simulation_time if _sim_time else 0.0,
+		}
+		_event_recorder.append_event(event)
 
-func _on_hello_ack(ack: Dictionary) -> void:
+func _on_hello_ack(server_id: String) -> void:
 	_agent_session_established = true
 	_agent_session_connected = true
-	print("Agent session established: %s" % [ack.get("session_id", "unknown")])
+	print("Agent session established: %s" % [server_id])
 
-func _on_connection_failed() -> void:
+func _on_message_received(msg: Dictionary) -> void:
+	# Route incoming messages to ProtocolHandler
+	if _protocol_handler:
+		_protocol_handler._on_message_received(msg)
+
+func _on_connection_failed(code: String, message: String) -> void:
 	print("WebSocket connection failed")
 	_fallback_to_local_mock()
 
-func _on_disconnected() -> void:
-	print("WebSocket disconnected")
+func _on_disconnected(reason: String) -> void:
+	print("WebSocket disconnected: %s" % [reason])
 	_agent_session_connected = false
 
 func _fallback_to_local_mock() -> void:

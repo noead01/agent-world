@@ -88,14 +88,6 @@ var object_definitions: Array = [
 @export var impulse_target_id: String = "obj_metal_sphere"
 @export var impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
 
-# Internal demo state
-var _demo_timer: float = 0.0
-var _demo_step: int = 0
-var _impulse_applied: bool = false
-var _last_print_time: float = 0.0
-var _landed_count: int = 0
-var _verbose_logging: bool = false
-
 func _ready() -> void:
 	# Apply benchmark-specific object definitions before parent _ready spawns them
 	# (parent's _ready calls _spawn_objects which we override)

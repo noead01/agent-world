@@ -113,7 +113,8 @@ def metric_attributes_from_correlation(correlation) -> dict:
     
     run_id is intentionally excluded (high cardinality); it remains in the
     correlation context for trace correlation.
-    trace_id and span_id are included for trace correlation.
+    trace_id and span_id are intentionally excluded (high cardinality per-message);
+    they remain in trace correlation/exemplars.
     Per-tick identifiers (world_revision, simulation_tick, simulation_time) are
     intentionally excluded to prevent unbounded cardinality as they change on
     every WorldState update. These values remain available in trace correlation.
@@ -126,10 +127,7 @@ def metric_attributes_from_correlation(correlation) -> dict:
         COMPONENT_ATTR: correlation.component,
         COMPONENT_VERSION_ATTR: correlation.component_version,
     }
-    if correlation.trace_id:
-        attrs[TRACE_ID_ATTR] = correlation.trace_id
-    if correlation.span_id:
-        attrs[SPAN_ID_ATTR] = correlation.span_id
+    # trace_id and span_id intentionally excluded from metric labels
     return attrs
 
 

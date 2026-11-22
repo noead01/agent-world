@@ -219,8 +219,10 @@ def test_metric_attributes_from_correlation_includes_bounded_only():
     assert attrs["agent.id"] == "agent_01"
     assert attrs["component"] == "agent"
     assert attrs["component.version"] == "1.0.0"
-    assert attrs["trace_id"] == "ab" * 16
-    assert attrs["span_id"] == "cd" * 8
+    
+    # trace_id and span_id should NOT be present (high cardinality per-message)
+    assert "trace_id" not in attrs
+    assert "span_id" not in attrs
     
     # Per-tick fields should NOT be present (unbounded cardinality)
     assert "world.revision" not in attrs

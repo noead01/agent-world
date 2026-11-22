@@ -106,6 +106,7 @@ class MockAgent:
         # Drive history for deterministic replay and observability
         self._drive_history: List[Dict[str, Any]] = []
         self._seen_objects: Dict[str, int] = {}  # object_id -> tick last seen
+        self._exploration_count: Dict[str, int] = {}  # object_id -> times selected for curiosity exploration
         self._last_agent_position: Optional[Tuple[float, float, float]] = None
         self._predicted_positions: Dict[str, Tuple[float, float, float]] = {}  # object_id -> predicted position
         
@@ -230,7 +231,7 @@ class MockAgent:
         # Issue next action after cooldown
         self.cooldown_remaining_ticks = self.ACTION_COOLDOWN_TICKS
         
-        # Record terminal action result metric
+        # Record terminal action result metric + action duration
         if self._metrics_initialized and request:
             correlation = request.get("correlation")
             if correlation:
@@ -239,6 +240,12 @@ class MockAgent:
                 action_attrs[METRIC_ACTION_TYPE_ATTR] = action.action_type_id
                 action_attrs[METRIC_RESULT_ATTR] = action.result or "unknown"
                 self._counters["agent_world_action_total"].add(1, action_attrs)
+                
+                # Record action execution duration (from send to terminal result)
+                action_start = request.get("action_start")
+                if action_start is not None:
+                    duration = time.perf_counter() - action_start
+                    self._histograms["agent_world_action_duration_seconds"].record(duration, action_attrs)
 
     def _abandon_request(self, request_id: Optional[str]) -> None:
         """Stop awaiting a command the world rejected as invalid.
@@ -498,18 +505,24 @@ class MockAgent:
         
         # Priority 3: Curiosity - Explore novel objects
         if self.curiosity > self.CURIOSITY_EXPLORE_THRESHOLD:
-            # Find least-seen object
+            # Find least-seen object; break ties by exploration count (least explored first)
             least_seen_obj = None
             min_seen_tick = float('inf')
+            min_explore_count = float('inf')
             for obj in nearby_objects:
                 obj_id = obj.get("instance_id", "")
                 seen_tick = self._seen_objects.get(obj_id, -1)
-                if seen_tick < min_seen_tick:
+                explore_count = self._exploration_count.get(obj_id, 0)
+                # Primary: least seen; secondary: least explored
+                if seen_tick < min_seen_tick or (seen_tick == min_seen_tick and explore_count < min_explore_count):
                     min_seen_tick = seen_tick
+                    min_explore_count = explore_count
                     least_seen_obj = obj
             
             if least_seen_obj:
-                return "move", least_seen_obj.get("instance_id", ""), "curiosity_exploration"
+                obj_id = least_seen_obj.get("instance_id", "")
+                self._exploration_count[obj_id] = self._exploration_count.get(obj_id, 0) + 1
+                return "move", obj_id, "curiosity_exploration"
             return "move", nearby_objects[0].get("instance_id", ""), "curiosity_exploration"
         
         # No drive threshold crossed - return None to use target sequence
@@ -813,18 +826,16 @@ class MockAgent:
                     self.pending_requests[message_id] = {
                         "type": "action", "timestamp": time.time(),
                         "target_index": target_index, "payload": payload,
+                        "action_start": action_start,
                     }
                     await self.send(payload)
                 
-                # Record action metrics
+                # Record action initiation metrics (not duration - that's at terminal result)
                 if self._metrics_initialized:
                     action_attrs = dict(base_attrs)
                     action_attrs[METRIC_ACTION_TYPE_ATTR] = action_type
                     action_attrs[METRIC_RESULT_ATTR] = "pending"
                     self._counters["agent_world_action_total"].add(1, action_attrs)
-                    self._histograms["agent_world_action_duration_seconds"].record(
-                        time.perf_counter() - action_start, action_attrs
-                    )
 
             elif action_type == "wait":
                 action_start = time.perf_counter()
@@ -857,18 +868,16 @@ class MockAgent:
                     self.pending_requests[message_id] = {
                         "type": "action", "timestamp": time.time(),
                         "target_index": target_index, "payload": payload,
+                        "action_start": action_start,
                     }
                     await self.send(payload)
                 
-                # Record action metrics
+                # Record action initiation metrics (not duration - that's at terminal result)
                 if self._metrics_initialized:
                     action_attrs = dict(base_attrs)
                     action_attrs[METRIC_ACTION_TYPE_ATTR] = action_type
                     action_attrs[METRIC_RESULT_ATTR] = "pending"
                     self._counters["agent_world_action_total"].add(1, action_attrs)
-                    self._histograms["agent_world_action_duration_seconds"].record(
-                        time.perf_counter() - action_start, action_attrs
-                    )
             else:
                 # Unknown action type: leave the index untouched.
                 return

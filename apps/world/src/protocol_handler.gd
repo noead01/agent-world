@@ -299,8 +299,7 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
-			_current_world_revision, _current_simulation_tick,
-			_current_simulation_time, "world", "1.0.0",
+			"world", "1.0.0"
 		),
 	)
 	
@@ -312,8 +311,7 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
-			_current_world_revision, _current_simulation_tick,
-			_current_simulation_time, "world", "1.0.0",
+			"world", "1.0.0"
 		),
 	)
 	
@@ -357,8 +355,7 @@ func send_observation(observation: Dictionary) -> void:
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
-			_current_world_revision, _current_simulation_tick,
-			_current_simulation_time, "world", "1.0.0",
+			"world", "1.0.0"
 		),
 	)
 	var correlation = _make_correlation()
@@ -388,8 +385,7 @@ func send_intention(intention: Dictionary) -> void:
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
-			_current_world_revision, _current_simulation_tick,
-			_current_simulation_time, "world", "1.0.0",
+			"world", "1.0.0"
 		),
 	)
 	var correlation = _make_correlation()
@@ -422,8 +418,7 @@ func send_action(action: Dictionary) -> void:
 		{},
 		_trace.bounded_attributes(
 			experiment_id, scenario_id, scenario_version, agent_id,
-			_current_world_revision, _current_simulation_tick,
-			_current_simulation_time, "world", "1.0.0",
+			"world", "1.0.0"
 		),
 	)
 	var correlation = _make_correlation()
@@ -464,8 +459,7 @@ func send_terminal_result(action: Dictionary, parent_span: Dictionary = {}) -> v
 			{},
 			_trace.bounded_attributes(
 				experiment_id, scenario_id, scenario_version, agent_id,
-				_current_world_revision, _current_simulation_tick,
-				_current_simulation_time, "world", "1.0.0",
+				"world", "1.0.0"
 			),
 		)
 		correlation["trace_id"] = fallback_span.get("trace_id", "")

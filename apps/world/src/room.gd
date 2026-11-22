@@ -552,6 +552,7 @@ func _spawn_agent() -> void:
 	# Forehead/eye position: y=0.35 (eye level), z=-0.35 (forward, -Z is forward when heading=PI)
 	# Agent navigate_toward uses heading=0 -> world +Z, but Camera3D looks along local -Z
 	# So we rotate the camera by PI (180 degrees) to face the travel direction
+	# Pitch down ~30 degrees (-0.52 rad) to see objects on the floor
 	var agent_camera = Camera3D.new()
 	agent_camera.name = "AgentCamera"
 	agent_camera.current = true
@@ -559,7 +560,8 @@ func _spawn_agent() -> void:
 	agent_camera.position = Vector3(0, 0.35, -0.35)
 	# Rotate 180 degrees around Y so camera faces travel direction
 	# (Agent heading=0 moves toward +Z, camera looks along -Z local)
-	agent_camera.rotation.y = PI
+	# Pitch down -0.52 rad (~ -30 deg) to see floor/objects
+	agent_camera.rotation = Vector3(-0.52, PI, 0)
 	_agent.add_child(agent_camera)
 
 func _animate_day_night(hour: float) -> void:

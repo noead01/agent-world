@@ -325,7 +325,8 @@ class MockAgent:
         nearby_objects = state.nearby_objects
         
         # --- Curiosity: novelty-seeking ---
-        # Increase for each newly seen or changed object, decay otherwise
+        # Increase for each newly seen or changed object (one-time events, NOT scaled by delta_ticks),
+        # decay is continuous (scaled by delta_ticks)
         curiosity_delta = 0.0
         for obj in nearby_objects:
             obj_id = obj.get("instance_id", "")
@@ -333,8 +334,8 @@ class MockAgent:
             obj_pos = (pos_dict.get("x", 0.0), pos_dict.get("y", 0.0), pos_dict.get("z", 0.0))
             
             if obj_id not in self._seen_objects:
-                # Never seen before - strong curiosity boost
-                curiosity_delta += 0.15 * delta_ticks
+                # Never seen before - strong curiosity boost (one-time)
+                curiosity_delta += 0.15
                 self._seen_objects[obj_id] = tick
             else:
                 # Check if object moved (novel state)
@@ -347,12 +348,12 @@ class MockAgent:
                         dy = obj_pos[1] - predicted[1]
                         dz = obj_pos[2] - predicted[2]
                         if dx*dx + dy*dy + dz*dz > 0.01:  # Moved > 10cm
-                            curiosity_delta += 0.05 * delta_ticks
+                            curiosity_delta += 0.05  # One-time boost
                     self._seen_objects[obj_id] = tick
                     # Update prediction AFTER computing curiosity delta
                     self._predicted_positions[obj_id] = obj_pos
         
-        # Curiosity decay when nothing novel
+        # Curiosity decay when nothing novel (continuous rate, scaled by delta_ticks)
         if curiosity_delta == 0.0:
             curiosity_delta = -0.01 * delta_ticks
         

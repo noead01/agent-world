@@ -17,6 +17,7 @@ class_name Trace
 
 var _trace_id: String = ""
 var _span_id: String = ""
+var _verbose_logging: bool = false
 
 # Stack of active spans for parent-child relationships.
 var _span_stack: Array = []
@@ -29,6 +30,7 @@ const SPAN_ACTION_EXECUTE = "world.action.execute"
 func _init() -> void:
 	_trace_id = Crypto.new().generate_random_bytes(16).hex_encode()
 	_span_id = ""
+	_verbose_logging = OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1"
 
 # Start a span with a stable name and bounded attributes.
 #
@@ -65,9 +67,10 @@ func start_span(name: String, parent_context: Dictionary = {}, attributes: Dicti
 	var attr_str: String = ""
 	if attributes.size() > 0:
 		attr_str = " attrs=%s" % [JSON.stringify(attributes)]
-	print("TRACE_SPAN: start=%s trace_id=%s span_id=%s parent=%s%s" % [
-		name, child_trace_id, new_span_id, parent_span_id if parent_span_id != "" else "-", attr_str,
-	])
+	if _verbose_logging:
+		print("TRACE_SPAN: start=%s trace_id=%s span_id=%s parent=%s%s" % [
+			name, child_trace_id, new_span_id, parent_span_id if parent_span_id != "" else "-", attr_str,
+		])
 
 	return span
 
@@ -77,9 +80,10 @@ func end_span(span: Dictionary) -> void:
 	if index >= 0:
 		_span_stack.remove_at(index)
 	var duration_ms: int = Time.get_ticks_msec() - int(span.get("started_at", 0))
-	print("TRACE_SPAN: end=%s trace_id=%s span_id=%s duration_ms=%d" % [
-		span.get("name", ""), span.get("trace_id", ""), span.get("span_id", ""), duration_ms,
-	])
+	if _verbose_logging:
+		print("TRACE_SPAN: end=%s trace_id=%s span_id=%s duration_ms=%d" % [
+			span.get("name", ""), span.get("trace_id", ""), span.get("span_id", ""), duration_ms,
+		])
 
 # Get the current trace ID (for propagation in correlation contexts).
 func get_trace_id() -> String:
@@ -109,9 +113,6 @@ func bounded_attributes(
 	scenario_id: String = "",
 	scenario_version: String = "",
 	agent_id: String = "",
-	world_revision: int = 0,
-	simulation_tick: int = 0,
-	simulation_time: float = 0.0,
 	component: String = "world",
 	component_version: String = "1.0.0",
 ) -> Dictionary:
@@ -120,9 +121,6 @@ func bounded_attributes(
 		"scenario.id": scenario_id,
 		"scenario.version": scenario_version,
 		"agent.id": agent_id,
-		"world.revision": world_revision,
-		"simulation.tick": simulation_tick,
-		"simulation.time": simulation_time,
 		"component": component,
 		"component.version": component_version,
 	}
@@ -144,9 +142,6 @@ func _build_metric_attributes(
 	scenario_id: String,
 	scenario_version: String,
 	agent_id: String,
-	world_revision: int,
-	simulation_tick: int,
-	simulation_time: float,
 	attributes: Dictionary
 ) -> Dictionary:
 	var base = bounded_attributes(
@@ -154,9 +149,6 @@ func _build_metric_attributes(
 		scenario_id,
 		scenario_version,
 		agent_id,
-		world_revision,
-		simulation_tick,
-		simulation_time,
 	)
 	for key in attributes:
 		base[key] = attributes[key]
@@ -174,6 +166,8 @@ func record_counter(
 	simulation_tick: int = 0,
 	simulation_time: float = 0.0,
 ) -> void:
+	if not _verbose_logging:
+		return
 	if not _metrics_initialized:
 		_init_metrics()
 	var attrs = _build_metric_attributes(
@@ -181,9 +175,6 @@ func record_counter(
 		scenario_id,
 		scenario_version,
 		agent_id,
-		world_revision,
-		simulation_tick,
-		simulation_time,
 		attributes
 	)
 	print("METRIC_COUNTER: name=%s value=%f attrs=%s" % [name, value, JSON.stringify(attrs)])
@@ -200,6 +191,8 @@ func record_histogram(
 	simulation_tick: int = 0,
 	simulation_time: float = 0.0,
 ) -> void:
+	if not _verbose_logging:
+		return
 	if not _metrics_initialized:
 		_init_metrics()
 	var attrs = _build_metric_attributes(
@@ -207,9 +200,6 @@ func record_histogram(
 		scenario_id,
 		scenario_version,
 		agent_id,
-		world_revision,
-		simulation_tick,
-		simulation_time,
 		attributes
 	)
 	print("METRIC_HISTOGRAM: name=%s value=%f attrs=%s" % [name, value, JSON.stringify(attrs)])
@@ -226,6 +216,8 @@ func set_gauge(
 	simulation_tick: int = 0,
 	simulation_time: float = 0.0,
 ) -> void:
+	if not _verbose_logging:
+		return
 	if not _metrics_initialized:
 		_init_metrics()
 	var attrs = _build_metric_attributes(
@@ -233,9 +225,6 @@ func set_gauge(
 		scenario_id,
 		scenario_version,
 		agent_id,
-		world_revision,
-		simulation_tick,
-		simulation_time,
 		attributes
 	)
 	print("METRIC_GAUGE: name=%s value=%f attrs=%s" % [name, value, JSON.stringify(attrs)])

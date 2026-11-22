@@ -179,6 +179,9 @@ func _ready() -> void:
 	if _use_local_mock:
 		print("AGENT_WORLD_LOCAL_MODE=1: Using local MockController")
 		_setup_local_mock_controller(run_id, random_seed)
+		# Mark session as established/connected for local mock mode
+		_agent_session_established = true
+		_agent_session_connected = true
 	else:
 		# Create WebSocketClient for agent service communication
 		var ws_client = _ws_client_template.new()
@@ -1068,6 +1071,9 @@ func _fallback_to_local_mock(run_id: String, random_seed: int) -> void:
 		return  # Connected successfully, don't fallback
 	print("WebSocket connection failed, falling back to local MockController")
 	_use_local_mock = true
+	# Mark session as established/connected for fallback mock mode
+	_agent_session_established = true
+	_agent_session_connected = true
 	# Clean up WebSocket client
 	if _ws_client != null:
 		_ws_client.queue_free()

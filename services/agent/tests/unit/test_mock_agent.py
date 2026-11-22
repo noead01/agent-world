@@ -199,6 +199,9 @@ class MockAgentRequestTests(unittest.IsolatedAsyncioTestCase):
             simulation_tick=simulation_tick,
             simulation_time=simulation_time,
             correlation=agent.correlation_base,
+            agent_position={"x": 0.0, "y": 0.0, "z": 0.0},
+            nearby_objects=[],
+            agent_id=agent.agent_id,
         )
 
 

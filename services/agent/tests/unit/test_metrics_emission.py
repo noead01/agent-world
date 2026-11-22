@@ -217,13 +217,15 @@ def test_metric_attributes_from_correlation_includes_bounded_only():
     assert attrs["scenario.id"] == "scenario_01"
     assert attrs["scenario.version"] == "1.0.0"
     assert attrs["agent.id"] == "agent_01"
-    assert attrs["world.revision"] == 10
-    assert attrs["simulation.tick"] == 100
-    assert attrs["simulation.time"] == 1.5
     assert attrs["component"] == "agent"
     assert attrs["component.version"] == "1.0.0"
     assert attrs["trace_id"] == "ab" * 16
     assert attrs["span_id"] == "cd" * 8
+    
+    # Per-tick fields should NOT be present (unbounded cardinality)
+    assert "world.revision" not in attrs
+    assert "simulation.tick" not in attrs
+    assert "simulation.time" not in attrs
     
     # High cardinality excluded
     assert "run.id" not in attrs

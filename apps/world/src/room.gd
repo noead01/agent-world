@@ -133,9 +133,9 @@ func _ready() -> void:
 	PhysicsServer3D.space_set_param(space, 0, gravity.y)
 	# Set sleep thresholds so objects settle faster and stop jittering
 	# SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD = 4
-	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD, 0.01)
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD, 0.05)
 	# SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD = 5
-	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD, 0.01)
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD, 0.05)
 	# SPACE_PARAM_BODY_TIME_TO_SLEEP = 6 (seconds before sleep)
 	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_TIME_TO_SLEEP, 0.5)
 

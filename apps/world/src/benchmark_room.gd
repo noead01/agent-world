@@ -250,7 +250,7 @@ func _process_demo(delta: float) -> void:
 				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
 			])
 
-func _on_object_landed(instance_id: String, body: Node3D) -> void:
+func _on_object_landed(body: Node3D, instance_id: String) -> void:
 	if body.is_in_group("room_boundary"):
 		_landed_count += 1
 		_append_domain_event("object_landed", instance_id, {

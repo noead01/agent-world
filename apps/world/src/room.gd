@@ -148,11 +148,6 @@ func _ready() -> void:
 	# Spawn the embodied agent (must be before EventRecorder start_run to have agent_id)
 	_spawn_agent()
 
-	# Create and configure EventRecorder
-	_event_recorder = _event_recorder_template.new()
-	add_child(_event_recorder)
-	_event_recorder.run_failed.connect(_on_run_failed)
-
 	# Generate high-precision run_id using timestamp + milliseconds + random component
 	var timestamp_sec = Time.get_unix_time_from_system()
 	var timestamp_msec = Time.get_ticks_msec()
@@ -166,6 +161,57 @@ func _ready() -> void:
 		push_error("Room: Failed to compute configuration fingerprint")
 		get_tree().quit()
 		return
+
+	# Check if local mock mode is enabled (for testing without agent service)
+	_use_local_mock = OS.get_environment("AGENT_WORLD_LOCAL_MODE") == "1"
+	
+	if _use_local_mock:
+		print("AGENT_WORLD_LOCAL_MODE=1: Using local MockController")
+		_setup_local_mock_controller(run_id, random_seed)
+		# Mark session as established/connected for local mock mode
+		_agent_session_established = true
+		_agent_session_connected = true
+	else:
+		# Create WebSocketClient for agent service communication
+		var ws_client = _ws_client_template.new()
+		# Allow overriding agent service URL via environment variable for testing
+		var agent_service_url = OS.get_environment("AGENT_SERVICE_URL")
+		if agent_service_url == "":
+			agent_service_url = "ws://localhost:8765"
+		ws_client.url = agent_service_url
+		ws_client.configure_hello(run_id, _agent.agent_id, _agent.agent_type_id)
+		# WebSocketClient signals: connected, disconnected, message_received, error
+		ws_client.connected.connect(_on_hello_ack)
+		ws_client.message_received.connect(_on_message_received)
+		ws_client.error.connect(_on_connection_failed)
+		ws_client.disconnected.connect(_on_disconnected)
+		add_child(ws_client)
+		_ws_client = ws_client
+		
+		# Create ProtocolHandler for message serialization/deserialization
+		var protocol_handler = _protocol_handler_template.new()
+		protocol_handler.experiment_id = experiment_id
+		protocol_handler.scenario_id = scenario_id
+		protocol_handler.scenario_version = scenario_version
+		protocol_handler.agent_id = _agent.agent_id
+		protocol_handler.stale_threshold = stale_threshold
+		protocol_handler.world_state_interval_ticks = world_state_interval_ticks
+		protocol_handler.set_websocket_client(ws_client)
+		protocol_handler.observation_ready.connect(_send_observation)
+		protocol_handler.intention_sent.connect(_send_intention)
+		protocol_handler.action_received.connect(_send_action)
+		# Note: action_result_received and stale_request_rejected are handled
+		# by _on_message_received routing to protocol_handler
+		add_child(protocol_handler)
+		_protocol_handler = protocol_handler
+		
+		# Start 3-second connection timeout for fallback to local mock
+		# (handled by WebSocketClient internally)
+
+	# Create and configure EventRecorder
+	_event_recorder = _event_recorder_template.new()
+	add_child(_event_recorder)
+	_event_recorder.run_failed.connect(_on_run_failed)
 
 	# Start recording
 	var success = _event_recorder.start_run(
@@ -183,7 +229,8 @@ func _ready() -> void:
 		return
 	else:
 		# Update ProtocolHandler with the run_id
-		_protocol_handler.run_id = run_id
+		if _protocol_handler:
+			_protocol_handler.run_id = run_id
 		# Persist the initial run boundary before any other activity so the
 		# authoritative timeline can reconstruct its starting conditions.
 		var initial_objects: Array = []
@@ -233,24 +280,6 @@ func _ready() -> void:
 		ws_client.disconnected.connect(_on_disconnected)
 		add_child(ws_client)
 		_ws_client = ws_client
-		
-		# Create ProtocolHandler for message serialization/deserialization
-		var protocol_handler = _protocol_handler_template.new()
-		protocol_handler.experiment_id = experiment_id
-		protocol_handler.scenario_id = scenario_id
-		protocol_handler.scenario_version = scenario_version
-		protocol_handler.agent_id = _agent.agent_id
-		# run_id will be set after EventRecorder starts
-		protocol_handler.stale_threshold = stale_threshold
-		protocol_handler.world_state_interval_ticks = world_state_interval_ticks
-		protocol_handler.set_websocket_client(ws_client)
-		protocol_handler.observation_ready.connect(_send_observation)
-		protocol_handler.intention_ready.connect(_send_intention)
-		protocol_handler.action_ready.connect(_send_action)
-		# Note: action_result_received and stale_request_rejected are handled
-		# by _on_message_received routing to protocol_handler
-		add_child(protocol_handler)
-		_protocol_handler = protocol_handler
 		
 		# Start 3-second connection timeout for fallback to local mock
 		# (handled by WebSocketClient internally)

@@ -138,6 +138,18 @@ func _ready() -> void:
 	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD, 0.01)
 	# SPACE_PARAM_BODY_TIME_TO_SLEEP = 6 (seconds before sleep)
 	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_TIME_TO_SLEEP, 0.1)
+	# Increase solver iterations for better constraint resolution (default ~8-10)
+	# SPACE_PARAM_SOLVER_ITERATIONS = 7
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_SOLVER_ITERATIONS, 20)
+	# Tune contact parameters for stability with small/stacked bodies
+	# SPACE_PARAM_CONTACT_RECYCLE_RADIUS = 0
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_CONTACT_RECYCLE_RADIUS, 0.05)
+	# SPACE_PARAM_CONTACT_MAX_SEPARATION = 1
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_CONTACT_MAX_SEPARATION, 0.02)
+	# SPACE_PARAM_CONTACT_MAX_ALLOWED_PENETRATION = 2
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_CONTACT_MAX_ALLOWED_PENETRATION, 0.01)
+	# SPACE_PARAM_CONTACT_DEFAULT_BIAS = 3 (bias to correct penetration)
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_CONTACT_DEFAULT_BIAS, 0.3)
 
 	_build_room_boundaries()
 	_spawn_objects()

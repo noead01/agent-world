@@ -345,20 +345,18 @@ class MockAgent:
                 curiosity_delta += 0.15
                 self._seen_objects[obj_id] = tick
             else:
-                # Check if object moved (novel state)
-                last_seen_tick = self._seen_objects[obj_id]
-                if last_seen_tick != tick:  # Updated this tick
-                    # Check if position changed significantly (compare against PREVIOUS prediction)
-                    predicted = self._predicted_positions.get(obj_id)
-                    if predicted:
-                        dx = obj_pos[0] - predicted[0]
-                        dy = obj_pos[1] - predicted[1]
-                        dz = obj_pos[2] - predicted[2]
-                        if dx*dx + dy*dy + dz*dz > 0.01:  # Moved > 10cm
-                            curiosity_delta += 0.05  # One-time boost
-                    self._seen_objects[obj_id] = tick
-                    # Update prediction AFTER computing curiosity delta
-                    self._predicted_positions[obj_id] = obj_pos
+                # Check if object moved (novel state) - compare against PREVIOUS prediction
+                predicted = self._predicted_positions.get(obj_id)
+                if predicted:
+                    dx = obj_pos[0] - predicted[0]
+                    dy = obj_pos[1] - predicted[1]
+                    dz = obj_pos[2] - predicted[2]
+                    dist_sq = dx*dx + dy*dy + dz*dz
+                    if dist_sq > 0.01:  # Moved > 10cm
+                        curiosity_delta += 0.05  # One-time boost
+                        self._seen_objects[obj_id] = tick  # Only update when object actually moved
+                # Update prediction AFTER computing curiosity delta
+                self._predicted_positions[obj_id] = obj_pos
         
         # Curiosity decay when nothing novel (continuous rate, scaled by delta_ticks)
         if curiosity_delta == 0.0:

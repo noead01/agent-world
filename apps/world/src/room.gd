@@ -1071,9 +1071,10 @@ func _fallback_to_local_mock(run_id: String, random_seed: int) -> void:
 		return  # Connected successfully, don't fallback
 	print("WebSocket connection failed, falling back to local MockController")
 	_use_local_mock = true
-	# Mark session as established/connected for fallback mock mode
-	_agent_session_established = true
-	_agent_session_connected = true
+	# Do NOT mark session as established/connected for fallback.
+	# Fallback uses different policy (2s cooldown, no seeded delay) than external
+	# service (30-tick cooldown, 50% seeded delay). Marking connected would
+	# create identical run fingerprints for different behaviors.
 	# Clean up WebSocket client
 	if _ws_client != null:
 		_ws_client.queue_free()

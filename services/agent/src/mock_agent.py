@@ -147,6 +147,10 @@ class MockAgent:
         self._last_agent_position: Optional[Tuple[float, float, float]] = None
         self._predicted_positions: Dict[str, Tuple[float, float, float]] = {}  # object_id -> predicted position
         
+        # Gate drive gauge emission to avoid per-tick spam (emit every 10 ticks ~ 1s at 60Hz)
+        self._last_drive_emit_tick: int = -9999
+        self._drive_emit_interval_ticks: int = 10
+        
         # Metrics instruments (initialized lazily on first use)
         self._counters: Optional[Dict] = None
         self._histograms: Optional[Dict] = None
@@ -392,8 +396,6 @@ class MockAgent:
                     if dist_sq > self.PREDICTION_ERROR_MEDIUM:  # Moved > 10cm
                         curiosity_delta += self.CURIOSITY_MOVED_BOOST  # One-time boost
                         self._seen_objects[obj_id] = tick  # Only update when object actually moved
-                # Update prediction AFTER computing curiosity delta
-                self._predicted_positions[obj_id] = obj_pos
         
         # Curiosity decay when nothing novel (continuous rate, scaled by delta_ticks)
         if curiosity_delta == 0.0:
@@ -439,6 +441,13 @@ class MockAgent:
             
         self.uncertainty = max(0.0, min(1.0, self.uncertainty + uncertainty_delta))
         
+        # Update predictions for NEXT tick (after uncertainty has used PREVIOUS tick's predictions)
+        for obj in nearby_objects:
+            obj_id = obj.get("instance_id", "")
+            pos_dict = obj.get("position", {})
+            obj_pos = (pos_dict.get("x", 0.0), pos_dict.get("y", 0.0), pos_dict.get("z", 0.0))
+            self._predicted_positions[obj_id] = obj_pos
+        
         # --- Physical Integrity: safety/damage ---
         # Decrease with high-speed impacts, recover when stationary and safe
         integrity_delta = 0.0
@@ -460,10 +469,11 @@ class MockAgent:
         
         self.physical_integrity = max(0.0, min(1.0, self.physical_integrity + integrity_delta))
         
-        # Emit drive values to telemetry for observability
+        # Emit drive values to telemetry for observability (gated to avoid per-tick spam)
         self._init_metrics()
         base_attrs = metric_attributes_from_correlation(self.correlation_base)
-        if self._metrics_initialized:
+        if self._metrics_initialized and (tick - self._last_drive_emit_tick) >= self._drive_emit_interval_ticks:
+            self._last_drive_emit_tick = tick
             drive_attrs = dict(base_attrs)
             drive_attrs[DRIVE_TYPE_ATTR] = "curiosity"
             self._gauges["agent_world_drive_value"].set(self.curiosity, drive_attrs)
@@ -562,6 +572,21 @@ class MockAgent:
         
         # No drive threshold crossed - return None to use target sequence
         return None, "", ""
+
+    def _select_fallback_action(self) -> Tuple[Optional[str], str, str]:
+        """Select fallback action from target sequence when no drive threshold crossed.
+        
+        Cycles through the deterministic target sequence.
+        """
+        if not self.targets:
+            return None, "", ""
+        if self.current_target_index >= len(self.targets):
+            # Cycle back to beginning of target sequence
+            self.current_target_index = 0
+        target = self.targets[self.current_target_index]
+        action_type = target.get("action_type", "move")
+        target_id = target.get("target_id", "")
+        return action_type, target_id, "target_sequence"
 
     async def run_tick(self) -> None:
         """Main tick - called periodically to issue actions.
@@ -698,31 +723,42 @@ class MockAgent:
                         self.targets[target_index] = original_target
                     elif len(self.targets) > target_index:
                         self.targets.pop(target_index)
-        elif self.current_target_index < len(self.targets):
-            # Fallback to original target sequence
-            # Reconstruct the parent span context from the correlation base so
-            # deliberation traces are children of the world trace that sent the
-            # WorldState. If correlation lacks trace_id/span_id, a new trace is
-            # started (fails open for telemetry).
-            parent_span_ctx = span_context_from_correlation(self.correlation_base)
-            if parent_span_ctx.is_valid:
-                parent_context = trace.set_span_in_context(
-                    trace.NonRecordingSpan(parent_span_ctx)
-                )
-            else:
-                parent_context = None
+        else:
+            # Fallback to target sequence (cycles when exhausted)
+            action_type, target_id, reason = self._select_fallback_action()
+            if action_type:
+                # Reconstruct the parent span context from the correlation base so
+                # deliberation traces are children of the world trace that sent the
+                # WorldState. If correlation lacks trace_id/span_id, a new trace is
+                # started (fails open for telemetry).
+                parent_span_ctx = span_context_from_correlation(self.correlation_base)
+                if parent_span_ctx.is_valid:
+                    parent_context = trace.set_span_in_context(
+                        trace.NonRecordingSpan(parent_span_ctx)
+                    )
+                else:
+                    parent_context = None
 
-            tracer = trace.get_tracer(__name__)
-            with tracer.start_as_current_span(
-                SPAN_DELIBERATION_REQUEST,
-                context=parent_context,
-                attributes=span_attributes_from_correlation(self.correlation_base),
-            ):
-                await self._issue_next_action(
-                    self.last_world_state.world_revision,
-                    self.last_world_state.simulation_tick,
-                    self.last_world_state.simulation_time
-                )
+                tracer = trace.get_tracer(__name__)
+                with tracer.start_as_current_span(
+                    SPAN_DELIBERATION_REQUEST,
+                    context=parent_context,
+                    attributes=span_attributes_from_correlation(self.correlation_base),
+                ):
+                    # Record arbitration metric for target sequence fallback
+                    self._init_metrics()
+                    base_attrs = metric_attributes_from_correlation(self.correlation_base)
+                    arb_attrs = dict(base_attrs)
+                    arb_attrs[WINNER_LAYER_ATTR] = "target_sequence"
+                    arb_attrs[REASON_CATEGORY_ATTR] = reason
+                    if self._metrics_initialized:
+                        self._counters["agent_world_arbitration_total"].add(1, arb_attrs)
+                    
+                    await self._issue_next_action(
+                        self.last_world_state.world_revision,
+                        self.last_world_state.simulation_tick,
+                        self.last_world_state.simulation_time
+                    )
     
     async def _issue_next_action(
         self,

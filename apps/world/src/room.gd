@@ -1,25 +1,33 @@
 extends Node3D
-
 class_name Room
 
 signal object_landed(instance_id: String)
 signal object_collided(instance_id: String, other_id: String)
 signal object_impulse_applied(instance_id: String, impulse: Vector3)
+signal simulation_paused()
+signal simulation_resumed()
+signal simulation_time_scale_changed(time_scale: float)
+signal simulation_reset()
+signal observation_ready(msg: Dictionary)
 
+# Configuration loaded from world_config.json
+var _config_loader = preload("res://src/config_loader.gd")
+
+# Room bounds (from config, with @export for editor override)
 @export_group("Room Bounds")
-var half_size: Vector3 = Vector3(13.5, 13.5, 13.5)
+@export var half_size: Vector3 = Vector3(13.5, 13.5, 13.5)
 
 @export_group("Physics")
-var gravity: Vector3 = Vector3(0, -9.8, 0)
-var fixed_timestep_hz: float = 60.0
+@export var gravity: Vector3 = Vector3(0, -9.8, 0)
+@export var fixed_timestep_hz: float = 60.0
 
-# Protocol timing controls (mirrored on ProtocolHandler). Changing either alters
-# whether delayed commands are accepted or retried and at which simulation ticks
-# the service advances, so they are included in the configuration fingerprint.
+# Protocol timing controls (from config, with @export for editor override)
+@export_group("Protocol")
 @export var stale_threshold: int = 5
 @export var world_state_interval_ticks: int = 5
 
-# Experiment identification (mirrored on ProtocolHandler for trace correlation)
+# Experiment identification (from config, with @export for editor override)
+@export_group("Experiment")
 @export var experiment_id: String = "exp_autonomous_discovery_01"
 @export var scenario_id: String = "first_benchmark_room"
 @export var scenario_version: String = "1.0.0"
@@ -31,60 +39,40 @@ var _sim_time
 var _light: DirectionalLight3D
 var _last_light_hour: float = -1.0
 
-var _demo_timer: float = 0.0
-# Configurable demo duration for testing; default 10s for acceptance runs
-var _demo_duration: float = float(OS.get_environment("AGENT_WORLD_DEMO_DURATION")) if OS.get_environment("AGENT_WORLD_DEMO_DURATION") != "" else 10.0
-var _last_print_time: float = 0.0
-var _verbose_logging: bool = false
-var _landed_count: int = 0
-var _impulse_applied: bool = false
-
-var _demo_pause_time: float = 2.0
-var _demo_resume_time: float = 4.0
-var _demo_scale_time: float = 6.0
-var _demo_reset_time: float = 8.0
-var _demo_scale_factor: float = 2.0
-var _demo_impulse_time: float = 1.0
-var _demo_impulse_target_id: String = "obj_metal_sphere"
-var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
-var _demo_step: int = 0
 var _cumulative_run_time: float = 0.0  # Tracks total run time across simulation resets
 var _world_revision: int = 0  # Monotonic across simulation resets (unlike simulation_tick)
 var _trace
 
-# External agent-service behavior policy, mirrored by services/agent. The
-# configuration fingerprint must cover it: world-side settings alone cannot
-# distinguish two runs whose agent behavior differs.
-# Version 2: Added drive policy (thresholds, initial values, update rates)
-const AGENT_SERVICE_POLICY_VERSION := "2"
-const AGENT_SERVICE_ACTION_DELAY_TICKS := 12
-const AGENT_SERVICE_ACTION_COOLDOWN_TICKS := 30
-const AGENT_SERVICE_ACTION_DELAY_PROBABILITY := 0.5
-const AGENT_SERVICE_TARGET_IDS := ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"]
-const AGENT_SERVICE_INTERRUPT_TARGET_IDS := ["obj_wood_cube"]
+# Agent service policy constants (from config, for fingerprint)
+var _agent_service_policy_version: String = "2"
+var _agent_service_action_delay_ticks: int = 12
+var _agent_service_action_cooldown_ticks: int = 30
+var _agent_service_action_delay_probability: float = 0.5
+var _agent_service_target_ids: Array = ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"]
+var _agent_service_interrupt_target_ids: Array = ["obj_wood_cube"]
 
-# Drive policy constants (must match services/agent/drive_policy.json)
-const DRIVE_POLICY_VERSION := "1"
-const DRIVE_CURIOSITY_EXPLORE_THRESHOLD := 0.7
-const DRIVE_UNCERTAINTY_INVESTIGATE_THRESHOLD := 0.6
-const DRIVE_INTEGRITY_SAFETY_THRESHOLD := 0.3
-const DRIVE_INITIAL_CURIOSITY := 0.5
-const DRIVE_INITIAL_UNCERTAINTY := 0.5
-const DRIVE_INITIAL_INTEGRITY := 1.0
-const DRIVE_CURIOSITY_NOVEL_BOOST := 0.15
-const DRIVE_CURIOSITY_MOVED_BOOST := 0.05
-const DRIVE_CURIOSITY_DECAY_RATE := 0.01
-const DRIVE_UNCERTAINTY_HIGH_ERROR_BOOST := 0.1
-const DRIVE_UNCERTAINTY_MEDIUM_ERROR_BOOST := 0.03
-const DRIVE_UNCERTAINTY_GOOD_PREDICTION_DECAY := 0.005
-const DRIVE_UNCERTAINTY_UNEXPECTED_MOVEMENT_BOOST := 0.05
-const DRIVE_UNCERTAINTY_DECAY_RATE := 0.005
-const DRIVE_INTEGRITY_COLLISION_PENALTY := 0.005
-const DRIVE_INTEGRITY_RECOVERY_RATE := 0.002
-const DRIVE_INTEGRITY_COLLISION_DISTANCE := 0.5
-const DRIVE_PREDICTION_ERROR_HIGH := 0.04
-const DRIVE_PREDICTION_ERROR_MEDIUM := 0.01
-const DRIVE_UNEXPECTED_MOVEMENT_THRESHOLD := 0.25
+# Drive policy constants (from config, for fingerprint)
+var _drive_policy_version: String = "1"
+var _drive_curiosity_explore_threshold: float = 0.7
+var _drive_uncertainty_investigate_threshold: float = 0.6
+var _drive_integrity_safety_threshold: float = 0.3
+var _drive_initial_curiosity: float = 0.5
+var _drive_initial_uncertainty: float = 0.5
+var _drive_initial_integrity: float = 1.0
+var _drive_curiosity_novel_boost: float = 0.15
+var _drive_curiosity_moved_boost: float = 0.05
+var _drive_curiosity_decay_rate: float = 0.01
+var _drive_uncertainty_high_error_boost: float = 0.1
+var _drive_uncertainty_medium_error_boost: float = 0.03
+var _drive_uncertainty_good_prediction_decay: float = 0.005
+var _drive_uncertainty_unexpected_movement_boost: float = 0.05
+var _drive_uncertainty_decay_rate: float = 0.005
+var _drive_integrity_collision_penalty: float = 0.005
+var _drive_integrity_recovery_rate: float = 0.002
+var _drive_integrity_collision_distance: float = 0.5
+var _drive_prediction_error_high: float = 0.04
+var _drive_prediction_error_medium: float = 0.01
+var _drive_unexpected_movement_threshold: float = 0.25
 
 var _agent
 var _ws_client
@@ -104,13 +92,20 @@ var _mock_controller
 
 # Health status emission
 var _health_timer: float = 0.0
-const HEALTH_INTERVAL_S: float = 5.0
+var _health_interval_s: float = 5.0
 
 # Metrics emission (gate to avoid per-tick spam)
 var _metrics_timer: float = 0.0
-const METRICS_INTERVAL_S: float = 1.0  # Emit metrics once per second of wall time
+var _metrics_interval_s: float = 1.0  # Emit metrics once per second of wall time
+
+# Verbose logging flag
+var _verbose_logging: bool = false
 
 func _ready() -> void:
+	# Load configuration from JSON file
+	_config_loader.load_config()
+	_load_config_values()
+	
 	_verbose_logging = OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1"
 	# Configure project physics settings for Jolt fixed timestep
 	ProjectSettings.set_setting("physics/3d/physics_engine", "JoltPhysics")
@@ -163,8 +158,6 @@ func _ready() -> void:
 	)
 	if not success:
 		print("ERROR: Failed to start event recorder")
-		# Without an active recorder the run cannot produce an authoritative
-		# record, so abort initialization instead of launching the simulation.
 		set_process(false)
 		set_physics_process(false)
 		get_tree().quit()
@@ -182,15 +175,12 @@ func _ready() -> void:
 				"position": {"x": p.x, "y": p.y, "z": p.z},
 				"sleeping": obj.is_sleeping(),
 			})
-		var initial_agent_state: Dictionary = {}
-		if _agent != null:
-			var agent_dict: Dictionary = _agent.get_agent_dict()
-			initial_agent_state = {
-				"id": agent_dict["id"],
-				"status": agent_dict["status"],
-				"position": agent_dict["position"],
-				"heading_radians": agent_dict["heading_radians"],
-			}
+		var initial_agent_state = {
+			"id": _agent.agent_id,
+			"status": _agent.status,
+			"position": _agent.position,
+			"heading_radians": _agent.heading_radians,
+		}
 		_append_domain_event("run_started", "", {
 			"description": "Simulation started",
 			"initial_objects": initial_objects,
@@ -214,46 +204,32 @@ func _ready() -> void:
 		if agent_service_url == "":
 			agent_service_url = "ws://localhost:8765"
 		ws_client.url = agent_service_url
-		ws_client.configure_hello(run_id, _agent.agent_id, "", "", "", random_seed)
+		ws_client.configure_hello(run_id, _agent.agent_id, _agent.agent_type_id)
+		ws_client.hello_ack_received.connect(_on_hello_ack)
+		ws_client.observation_received.connect(_on_observation_received)
+		ws_client.action_result_received.connect(_on_action_result)
+		ws_client.stale_request_rejected.connect(_on_stale_request)
+		ws_client.connection_failed.connect(_on_connection_failed)
+		ws_client.disconnected.connect(_on_disconnected)
 		add_child(ws_client)
-		ws_client.connect_to_server()
-
-		# Create ProtocolHandler with generated run_id
-		var protocol_handler = _protocol_handler_template.new()
-		protocol_handler.agent_id = _agent.agent_id
-		protocol_handler.run_id = run_id
-		protocol_handler.stale_threshold = stale_threshold
-		protocol_handler.world_state_interval_ticks = world_state_interval_ticks
-		protocol_handler.set_websocket_client(ws_client)
-		add_child(protocol_handler)
-
-		# Store references
 		_ws_client = ws_client
+		
+		# Create ProtocolHandler for message serialization/deserialization
+		var protocol_handler = _protocol_handler_template.new()
+		protocol_handler.configure(
+			experiment_id, scenario_id, scenario_version,
+			_agent.agent_id, _agent.agent_type_id
+		)
+		protocol_handler.observation_ready.connect(_send_observation)
+		protocol_handler.intention_ready.connect(_send_intention)
+		protocol_handler.action_ready.connect(_send_action)
+		protocol_handler.action_result_received.connect(_on_action_result)
+		protocol_handler.stale_request_rejected.connect(_on_stale_request)
+		add_child(protocol_handler)
 		_protocol_handler = protocol_handler
 		
-		# Connect WebSocket signals
-		ws_client.connected.connect(_on_agent_session_connected)
-		ws_client.disconnected.connect(_on_agent_session_disconnected)
-		
-		# Fallback to local mock if connection fails after 3 seconds
-		var timer = Timer.new()
-		timer.one_shot = true
-		timer.wait_time = 3.0
-		timer.timeout.connect(func(): _fallback_to_local_mock(run_id, random_seed))
-		add_child(timer)
-		timer.start()
-
-	# Trace context for the world runtime.
-	_trace = _trace_template.new()
-	# Use call_deferred to ensure trace is set after protocol_handler._ready() runs
-	if _protocol_handler:
-		_protocol_handler.call_deferred("set_trace", _trace)
-
-	# Connect ProtocolHandler signals (only if using WebSocket mode)
-	if _protocol_handler:
-		_protocol_handler.action_received.connect(_on_action_received)
-		_protocol_handler.action_result_received.connect(_on_action_result)
-		_protocol_handler.stale_request_rejected.connect(_on_stale_request)
+		# Start 3-second connection timeout for fallback to local mock
+		# (handled by WebSocketClient internally)
 
 	set_process(true)
 	set_physics_process(true)
@@ -265,6 +241,106 @@ func _ready() -> void:
 	print("Objects spawned: %d" % [objects.size()])
 	print("Simulation time: %d Hz fixed step, day cycle %ds" % [int(fixed_timestep_hz), int(_sim_time.day_cycle_duration_s)])
 	print("=================================")
+
+# Virtual method - subclasses should override to spawn their specific objects
+func _spawn_objects() -> void:
+	# Base implementation does nothing - subclasses must implement
+	pass
+
+# Virtual method - subclasses can override to run demo sequences
+func _process_demo(delta: float) -> void:
+	# Base implementation does nothing - subclasses can implement demo logic
+	pass
+
+func _load_config_values() -> void:
+	# Load room config
+	var room_config = _config_loader.get_room()
+	if room_config:
+		half_size = Vector3(room_config.get("half_size", {}).get("x", 13.5), 
+		                   room_config.get("half_size", {}).get("y", 13.5), 
+		                   room_config.get("half_size", {}).get("z", 13.5))
+		gravity = Vector3(room_config.get("gravity", {}).get("x", 0.0),
+		                 room_config.get("gravity", {}).get("y", -9.8),
+		                 room_config.get("gravity", {}).get("z", 0.0))
+		fixed_timestep_hz = room_config.get("fixed_timestep_hz", 60.0)
+	
+	# Load protocol config
+	var protocol_config = _config_loader.get_protocol()
+	if protocol_config:
+		stale_threshold = protocol_config.get("stale_threshold", 5)
+		world_state_interval_ticks = protocol_config.get("world_state_interval_ticks", 5)
+	
+	# Load experiment config
+	var exp_config = _config_loader.get_experiment()
+	if exp_config:
+		experiment_id = exp_config.get("experiment_id", "exp_autonomous_discovery_01")
+		scenario_id = exp_config.get("scenario_id", "first_benchmark_room")
+		scenario_version = exp_config.get("scenario_version", "1.0.0")
+	
+	# Load agent config
+	var agent_config = _config_loader.get_agent()
+	if agent_config:
+		# These are used for fingerprint, agent.gd has its own exports
+		pass
+	
+	# Load agent service policy
+	var svc_config = _config_loader.get_agent_service()
+	if svc_config:
+		_agent_service_policy_version = str(svc_config.get("policy_version", "2"))
+		_agent_service_action_delay_ticks = svc_config.get("action_delay_ticks", 12)
+		_agent_service_action_cooldown_ticks = svc_config.get("action_cooldown_ticks", 30)
+		_agent_service_action_delay_probability = svc_config.get("action_delay_probability", 0.5)
+		_agent_service_target_ids = svc_config.get("target_ids", ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"])
+		_agent_service_interrupt_target_ids = svc_config.get("interrupt_target_ids", ["obj_wood_cube"])
+	
+	# Load drive policy
+	var drive_config = _config_loader.get_drive_policy()
+	if drive_config:
+		_drive_policy_version = str(drive_config.get("version", "1"))
+		var thresholds = drive_config.get("thresholds", {})
+		_drive_curiosity_explore_threshold = thresholds.get("curiosity_explore", 0.7)
+		_drive_uncertainty_investigate_threshold = thresholds.get("uncertainty_investigate", 0.6)
+		_drive_integrity_safety_threshold = thresholds.get("integrity_safety", 0.3)
+		
+		var initial = drive_config.get("initial_values", {})
+		_drive_initial_curiosity = initial.get("curiosity", 0.5)
+		_drive_initial_uncertainty = initial.get("uncertainty", 0.5)
+		_drive_initial_integrity = initial.get("physical_integrity", 1.0)
+		
+		var rates = drive_config.get("update_rates", {})
+		var curiosity_rates = rates.get("curiosity", {})
+		_drive_curiosity_novel_boost = curiosity_rates.get("novel_object_boost", 0.15)
+		_drive_curiosity_moved_boost = curiosity_rates.get("moved_object_boost", 0.05)
+		_drive_curiosity_decay_rate = curiosity_rates.get("decay_rate", 0.01)
+		
+		var uncertainty_rates = rates.get("uncertainty", {})
+		_drive_uncertainty_high_error_boost = uncertainty_rates.get("high_prediction_error_boost", 0.1)
+		_drive_uncertainty_medium_error_boost = uncertainty_rates.get("medium_prediction_error_boost", 0.03)
+		_drive_uncertainty_good_prediction_decay = uncertainty_rates.get("good_prediction_decay", 0.005)
+		_drive_uncertainty_unexpected_movement_boost = uncertainty_rates.get("unexpected_movement_boost", 0.05)
+		_drive_uncertainty_decay_rate = uncertainty_rates.get("decay_rate", 0.005)
+		
+		var integrity_rates = rates.get("physical_integrity", {})
+		_drive_integrity_collision_penalty = integrity_rates.get("collision_risk_penalty", 0.005)
+		_drive_integrity_recovery_rate = integrity_rates.get("recovery_rate", 0.002)
+		_drive_integrity_collision_distance = integrity_rates.get("collision_distance_threshold", 0.5)
+		
+		var pred_thresholds = drive_config.get("prediction_error_thresholds", {})
+		_drive_prediction_error_high = pred_thresholds.get("high", 0.04)
+		_drive_prediction_error_medium = pred_thresholds.get("medium", 0.01)
+		_drive_unexpected_movement_threshold = pred_thresholds.get("unexpected_movement", 0.25)
+	
+	# Load simulation config
+	var sim_config = _config_loader.get_simulation()
+	if sim_config:
+		_sim_time.day_cycle_duration_s = sim_config.get("day_cycle_duration_s", 240.0)
+	
+	# Load metrics config
+	var metrics_config = _config_loader.get_metrics()
+	if metrics_config:
+		_health_interval_s = metrics_config.get("health_interval_s", 5.0)
+		_metrics_interval_s = metrics_config.get("metrics_interval_s", 1.0)
+		_verbose_logging = _verbose_logging or metrics_config.get("verbose_logs", false)
 
 func _compute_config_fingerprint() -> String:
 	var object_configs: Array = []
@@ -300,64 +376,51 @@ func _compute_config_fingerprint() -> String:
 		},
 		"objects": object_configs,
 		"agent_service": {
-			"policy_version": AGENT_SERVICE_POLICY_VERSION,
-			"action_delay_ticks": AGENT_SERVICE_ACTION_DELAY_TICKS,
-			"action_cooldown_ticks": AGENT_SERVICE_ACTION_COOLDOWN_TICKS,
-			"action_delay_probability": AGENT_SERVICE_ACTION_DELAY_PROBABILITY,
+			"policy_version": _agent_service_policy_version,
+			"action_delay_ticks": _agent_service_action_delay_ticks,
+			"action_cooldown_ticks": _agent_service_action_cooldown_ticks,
+			"action_delay_probability": _agent_service_action_delay_probability,
 			"target_sequence": _agent_service_target_sequence(),
 			"drive_policy": {
-				"version": DRIVE_POLICY_VERSION,
+				"version": _drive_policy_version,
 				"thresholds": {
-					"curiosity_explore": DRIVE_CURIOSITY_EXPLORE_THRESHOLD,
-					"uncertainty_investigate": DRIVE_UNCERTAINTY_INVESTIGATE_THRESHOLD,
-					"integrity_safety": DRIVE_INTEGRITY_SAFETY_THRESHOLD
+					"curiosity_explore": _drive_curiosity_explore_threshold,
+					"uncertainty_investigate": _drive_uncertainty_investigate_threshold,
+					"integrity_safety": _drive_integrity_safety_threshold
 				},
 				"initial_values": {
-					"curiosity": DRIVE_INITIAL_CURIOSITY,
-					"uncertainty": DRIVE_INITIAL_UNCERTAINTY,
-					"physical_integrity": DRIVE_INITIAL_INTEGRITY
+					"curiosity": _drive_initial_curiosity,
+					"uncertainty": _drive_initial_uncertainty,
+					"physical_integrity": _drive_initial_integrity
 				},
 				"update_rates": {
 					"curiosity": {
-						"novel_object_boost": DRIVE_CURIOSITY_NOVEL_BOOST,
-						"moved_object_boost": DRIVE_CURIOSITY_MOVED_BOOST,
-						"decay_rate": DRIVE_CURIOSITY_DECAY_RATE
+						"novel_object_boost": _drive_curiosity_novel_boost,
+						"moved_object_boost": _drive_curiosity_moved_boost,
+						"decay_rate": _drive_curiosity_decay_rate
 					},
 					"uncertainty": {
-						"high_prediction_error_boost": DRIVE_UNCERTAINTY_HIGH_ERROR_BOOST,
-						"medium_prediction_error_boost": DRIVE_UNCERTAINTY_MEDIUM_ERROR_BOOST,
-						"good_prediction_decay": DRIVE_UNCERTAINTY_GOOD_PREDICTION_DECAY,
-						"unexpected_movement_boost": DRIVE_UNCERTAINTY_UNEXPECTED_MOVEMENT_BOOST,
-						"decay_rate": DRIVE_UNCERTAINTY_DECAY_RATE
+						"high_prediction_error_boost": _drive_uncertainty_high_error_boost,
+						"medium_prediction_error_boost": _drive_uncertainty_medium_error_boost,
+						"good_prediction_decay": _drive_uncertainty_good_prediction_decay,
+						"unexpected_movement_boost": _drive_uncertainty_unexpected_movement_boost,
+						"decay_rate": _drive_uncertainty_decay_rate
 					},
 					"physical_integrity": {
-						"collision_risk_penalty": DRIVE_INTEGRITY_COLLISION_PENALTY,
-						"recovery_rate": DRIVE_INTEGRITY_RECOVERY_RATE,
-						"collision_distance_threshold": DRIVE_INTEGRITY_COLLISION_DISTANCE
+						"collision_risk_penalty": _drive_integrity_collision_penalty,
+						"recovery_rate": _drive_integrity_recovery_rate,
+						"collision_distance_threshold": _drive_integrity_collision_distance
 					}
 				},
 				"prediction_error_thresholds": {
-					"high": DRIVE_PREDICTION_ERROR_HIGH,
-					"medium": DRIVE_PREDICTION_ERROR_MEDIUM,
-					"unexpected_movement": DRIVE_UNEXPECTED_MOVEMENT_THRESHOLD
+					"high": _drive_prediction_error_high,
+					"medium": _drive_prediction_error_medium,
+					"unexpected_movement": _drive_unexpected_movement_threshold
 				}
 			}
 		},
 		"simulation": {
 			"day_cycle_duration_s": _sim_time.day_cycle_duration_s,
-			"demo": {
-				"duration_s": _demo_duration,
-				"pause_time_s": _demo_pause_time,
-				"resume_time_s": _demo_resume_time,
-				"scale_time_s": _demo_scale_time,
-				"reset_time_s": _demo_reset_time,
-				"scale_factor": _demo_scale_factor,
-				"automatic_impulse": {
-					"time_s": _demo_impulse_time,
-					"target_instance_id": _demo_impulse_target_id,
-					"vector": _vector_to_dict(_demo_impulse_vector),
-				},
-			},
 		},
 	}
 	var canonical_json: String = JSON.stringify(_canonicalize_config(config))
@@ -375,124 +438,106 @@ func _agent_service_target_sequence() -> Array:
 		{"target_id": "obj_nonexistent", "action_type": "touch"},
 		{"target_id": "", "action_type": "wait"},
 	]
-	for target_id in AGENT_SERVICE_TARGET_IDS:
+	for target_id in _agent_service_target_ids:
 		targets.append({"target_id": target_id, "action_type": "move"})
 		var touch := {"target_id": target_id, "action_type": "touch"}
-		if target_id in AGENT_SERVICE_INTERRUPT_TARGET_IDS:
+		if target_id in _agent_service_interrupt_target_ids:
 			touch["interrupt_after"] = true
 		targets.append(touch)
 	return targets
 
-func _canonicalize_config(value: Variant) -> Variant:
-	if value is Dictionary:
-		var canonical: Dictionary = {}
-		var keys: Array = value.keys()
+func _canonicalize_config(config: Variant) -> Variant:
+	# Sort keys recursively for deterministic JSON output
+	if config is Dictionary:
+		var sorted: Dictionary = {}
+		var keys: Array = config.keys()
 		keys.sort()
 		for key in keys:
-			canonical[key] = _canonicalize_config(value[key])
-		return canonical
-	if value is Array:
-		var canonical: Array = []
-		for item in value:
-			canonical.append(_canonicalize_config(item))
-		return canonical
-	return value
+			sorted[key] = _canonicalize_config(config[key])
+		return sorted
+	elif config is Array:
+		var sorted: Array = []
+		for item in config:
+			sorted.append(_canonicalize_config(item))
+		return sorted
+	else:
+		return config
 
-func _vector_to_dict(vector: Vector3) -> Dictionary:
-	return {"x": vector.x, "y": vector.y, "z": vector.z}
+# === Core room functionality (physics, boundaries, agent, WebSocket) ===
 
-func _physics_process(delta: float) -> void:
-	# Advance simulation time through fixed physics steps
-	var tick_start_usec = Time.get_ticks_usec()
-	_sim_time.tick(delta)
-	var tick_duration_usec = Time.get_ticks_usec() - tick_start_usec
-	var tick_duration_sec = tick_duration_usec / 1_000_000.0
+func _build_room_boundaries() -> void:
+	# Floor
+	var floor = _create_boundary_box("Floor", Vector3(half_size.x * 2 + 1, 0.2, half_size.z * 2 + 1), Vector3(0, -half_size.y - 0.1, 0))
+	# Ceiling
+	var ceiling = _create_boundary_box("Ceiling", Vector3(half_size.x * 2 + 1, 0.2, half_size.z * 2 + 1), Vector3(0, half_size.y + 0.1, 0))
+	# Walls
+	var wall_north = _create_boundary_box("WallNorth", Vector3(half_size.x * 2 + 1, half_size.y * 2, 0.2), Vector3(0, 0, -half_size.z - 0.1))
+	var wall_south = _create_boundary_box("WallSouth", Vector3(half_size.x * 2 + 1, half_size.y * 2, 0.2), Vector3(0, 0, half_size.z + 0.1))
+	var wall_east = _create_boundary_box("WallEast", Vector3(0.2, half_size.y * 2, half_size.z * 2), Vector3(half_size.x + 0.1, 0, 0))
+	var wall_west = _create_boundary_box("WallWest", Vector3(0.2, half_size.y * 2, half_size.z * 2), Vector3(-half_size.x - 0.1, 0, 0))
 
-	# Send world state via ProtocolHandler
-	if _protocol_handler:
-		# Use a monotonic revision that never resets with the simulation, so a
-		# response delayed across a reset cannot appear newer than the reset world.
-		_world_revision += 1
-		_protocol_handler.tick_world_state(
-			_world_revision,
-			_sim_time.simulation_tick,
-			_sim_time.simulation_time,
-			_agent.get_agent_dict(),
-			_get_nearby_objects()
-		)
-		
-		# Emit health status periodically
-		_health_timer += delta
-		if _health_timer >= HEALTH_INTERVAL_S:
-			_health_timer = 0.0
-			_protocol_handler.send_health_status()
-		
-		# Emit physics/runtime metrics (gated by METRICS_INTERVAL_S to avoid per-tick spam)
-		_metrics_timer += delta
-		if _trace and _metrics_timer >= METRICS_INTERVAL_S:
-			_metrics_timer = 0.0
-			_trace.record_histogram("agent_world_simulation_tick_duration_seconds", tick_duration_sec, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
-			_trace.set_gauge("agent_world_simulation_tick_total", _sim_time.simulation_tick, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
-			_trace.set_gauge("agent_world_simulation_time_scale", _sim_time.time_scale, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
-			_trace.set_gauge("agent_world_simulation_paused", 1 if _sim_time.is_paused else 0, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
-			_trace.set_gauge("agent_world_world_revision", _world_revision, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
-			
-			# Physics body counts - approximate from objects array
-			var active_count = 0
-			for obj in objects:
-				if not obj.is_sleeping():
-					active_count += 1
-			var sleeping_count = objects.size() - active_count
-			_trace.set_gauge("agent_world_physics_active_body_count", active_count, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
-			_trace.set_gauge("agent_world_physics_sleeping_body_count", sleeping_count, {}, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick, _sim_time.simulation_time)
+func _create_boundary_box(name: String, size: Vector3, position: Vector3) -> StaticBody3D:
+	var body = StaticBody3D.new()
+	body.name = name
+	var shape = CollisionShape3D.new()
+	var box = BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	body.add_child(shape)
+	body.global_position = position
+	add_child(body)
+	return body
 
-	# Demo sequence: pause/resume/time-scale/reset at scheduled times. The step
-	# counter makes each transition one-shot; matching only on elapsed wall time
-	# would re-fire the pause branch as soon as the phase returned to normal.
-	_demo_timer += delta
-	if _demo_step == 0 and _demo_timer >= _demo_pause_time:
-		_sim_time.pause()
-		_demo_step = 1
-		_append_domain_event("simulation_paused", "", {
-			"description": "Simulation paused by demo control",
-			"reason": "demo_schedule",
-			"simulation_tick": _sim_time.simulation_tick,
+func _spawn_agent() -> void:
+	_agent = _agent_template.new()
+	_agent.name = "Agent"
+	_agent.global_position = Vector3(0, -12.9, 1.5)
+	add_child(_agent)
+
+func _animate_day_night(hour: float) -> void:
+	if _light and abs(hour - _last_light_hour) > 0.1:
+		_last_light_hour = hour
+		var sun_angle = (hour / 24.0) * TAU - PI * 0.5
+		_light.global_rotation = Vector3(-sun_angle, 0, 0)
+		var intensity = max(0.1, cos(sun_angle))
+		_light.light_energy = intensity * 2.0
+		_light.light_color = Color(1.0, 0.95, 0.85) if intensity > 0.5 else Color(0.2, 0.2, 0.4)
+
+func _find_object(instance_id: String):
+	for obj in objects:
+		var meta = obj.get_metadata()
+		if meta["instance_id"] == instance_id:
+			return obj
+	return null
+
+func apply_impulse(instance_id: String, impulse: Vector3) -> void:
+	var target = _find_object(instance_id)
+	if target:
+		target.apply_central_impulse(impulse)
+		_append_domain_event("object_impulse_applied", instance_id, {
+			"impulse": _vector_to_dict(impulse),
 		})
-		print("  SIM PAUSED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_step == 1 and _demo_timer >= _demo_resume_time:
-		_sim_time.resume()
-		_demo_step = 2
-		_append_domain_event("simulation_resumed", "", {
-			"description": "Simulation resumed by demo control",
-			"reason": "demo_schedule",
-			"simulation_tick": _sim_time.simulation_tick,
-		})
-		print("  SIM RESUMED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_step == 2 and _demo_timer >= _demo_scale_time:
-		_sim_time.set_time_scale(_demo_scale_factor)
-		_demo_step = 3
-		_append_domain_event("simulation_time_scale_changed", "", {
-			"description": "Simulation time scale changed by demo control",
-			"reason": "demo_schedule",
-			"time_scale": _demo_scale_factor,
-			"simulation_tick": _sim_time.simulation_tick,
-		})
-		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_step == 3 and _demo_timer >= _demo_reset_time:
-		# Accumulate simulation time before reset for monotonic run clock
-		_cumulative_run_time += _sim_time.simulation_time
-		_sim_time.reset()
-		_sim_time.set_time_scale(1.0)
-		_demo_step = 4
-		_append_domain_event("simulation_reset", "", {
-			"description": "Simulation reset by demo control",
-			"reason": "demo_schedule",
-			"cumulative_run_time_s": _cumulative_run_time,
-		})
-		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d, cumulative=%.3f)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick, _cumulative_run_time])
+		object_impulse_applied.emit(instance_id, impulse)
 
+func get_settled_objects() -> Array[String]:
+	var settled: Array[String] = []
+	for obj in objects:
+		if obj.is_sleeping():
+			var meta = obj.get_metadata()
+			settled.append(meta["instance_id"])
+	return settled
+
+func _process(delta: float) -> void:
+	# Update demo timer
+	var demo_timer: float = 0.0
+	if _sim_time:
+		demo_timer = _sim_time.simulation_time
+	
+	# Run demo sequence (virtual, subclasses can override)
+	_process_demo(delta)
+	
 	# Apply gravity only when not paused (pause freezes behavior without corrupting state)
-	if not _sim_time.is_paused:
+	if _sim_time and not _sim_time.is_paused:
 		for obj in objects:
 			if not obj.is_sleeping():
 				obj.apply_central_force(gravity * obj.mass)
@@ -501,604 +546,103 @@ func _physics_process(delta: float) -> void:
 		for obj in objects:
 			obj.linear_velocity = Vector3(0, 0, 0)
 			obj.angular_velocity = Vector3(0, 0, 0)
+	
+	# Emit health status periodically
+	if _sim_time:
+		_health_timer += delta
+		if _health_timer >= _health_interval_s:
+			_health_timer = 0.0
+			_emit_health_status()
+	
+	# Emit metrics periodically
+	if _trace and _metrics_timer >= _metrics_interval_s:
+		_metrics_timer = 0.0
+		_emit_metrics()
+	else:
+		_metrics_timer += delta
 
-	# Apply an impulse to obj_metal_sphere at t=1s (before pause) to demonstrate impulse response
-	if not _impulse_applied and _demo_timer >= _demo_impulse_time:
-		var target = _find_object(_demo_impulse_target_id)
-		if target:
-			apply_impulse(target.instance_id, _demo_impulse_vector)
-			_impulse_applied = true
-			print("  IMPULSE applied to obj_metal_sphere at t=%.1fs" % [_demo_timer])
+func _physics_process(delta: float) -> void:
+	# Physics is handled by Jolt at fixed timestep
+	# This is here for any custom physics logic
+	pass
 
-	# Print status once per second with simulation time
-	if _verbose_logging and _demo_timer - _last_print_time >= 1.0:
-		_last_print_time = _demo_timer
-		var settled: Array[String] = get_settled_objects()
-		print("T+: wall=%.1fs sim=%.3f tick=%d paused=%s scale=%.1f tod=%.1f settled=%d/%d landed=%d" % [
-			_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick,
-			str(_sim_time.is_paused), _sim_time.time_scale, _sim_time.get_time_of_day(),
-			settled.size(), objects.size(), _landed_count
-		])
-		for obj in objects:
-			var p: Vector3 = obj.position
-			var meta: Dictionary = obj.get_metadata()
-			print("  %s: (%.2f, %.2f, %.2f) sleeping=%s mass=%.1f friction=%.1f bounciness=%.1f shape=%s dims=(%.2f,%.2f,%.2f)" % [
-				meta["instance_id"], p.x, p.y, p.z, str(obj.is_sleeping()), meta["mass_kg"], meta["friction"], meta["bounciness"],
-				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
-			])
+func _emit_health_status() -> void:
+	if not _ws_client or _ws_client.get_connection_state() != WebSocketClient.ConnectionState.CONNECTED:
+		return
+	var health = {
+		"type": "HealthStatus",
+		"run_id": _event_recorder.run_id if _event_recorder else "",
+		"agent_id": _agent.agent_id,
+		"timestamp_s": _sim_time.simulation_time if _sim_time else 0.0,
+		"world_revision": _world_revision,
+		"status": "healthy" if _agent_session_established else "degraded",
+		"details": {
+			"objects_count": objects.size(),
+			"settled_count": get_settled_objects().size(),
+			"simulation_tick": _sim_time.simulation_tick if _sim_time else 0,
+			"simulation_time": _sim_time.simulation_time if _sim_time else 0.0,
+			"paused": _sim_time.is_paused if _sim_time else false,
+			"time_scale": _sim_time.time_scale if _sim_time else 1.0,
+		}
+	}
+	_ws_client.send_message(health)
 
-		# Print agent state
-		if _agent != null:
-			var agent_dict: Dictionary = _agent.get_agent_dict()
-			print("  AGENT: id=%s status=%s pos=(%.2f, %.2f, %.2f) heading=%.2f world_time=%.3f goal=%s" % [
-				agent_dict["id"], agent_dict["status"],
-				agent_dict["position"]["x"], agent_dict["position"]["y"], agent_dict["position"]["z"],
-				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
-			])
+func _emit_metrics() -> void:
+	# Emit world-level metrics
+	if _trace:
+		var attrs = _trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, _agent.agent_id,
+			"world", "1.0.0"
+		)
+		attrs["objects_count"] = objects.size()
+		attrs["settled_count"] = get_settled_objects().size()
+		if _sim_time:
+			attrs["simulation_tick"] = _sim_time.simulation_tick
+			attrs["simulation_time"] = _sim_time.simulation_time
+			attrs["time_scale"] = _sim_time.time_scale
+		_trace.set_gauge("agent_world_objects_total", objects.size(), attrs)
+		_trace.set_gauge("agent_world_objects_settled", get_settled_objects().size(), attrs)
+		if _sim_time:
+			_trace.set_gauge("agent_world_simulation_time_scale", _sim_time.time_scale, attrs)
 
-	if _demo_timer >= _demo_duration:
-		print("=== Final Object States ===")
-		for obj in objects:
-			var meta: Dictionary = obj.get_metadata()
-			var p: Vector3 = obj.position
-			print("  %s: sleeping=%s position=(%.3f, %.3f, %.3f) mass=%.1f friction=%.1f bounciness=%.1f shape=%s dims=(%.2f,%.2f,%.2f)" % [
-				meta["instance_id"], str(obj.is_sleeping()), p.x, p.y, p.z, meta["mass_kg"], meta["friction"], meta["bounciness"],
-				meta.get("shape_type", "unknown"), meta["dimensions_m"]["x"], meta["dimensions_m"]["y"], meta["dimensions_m"]["z"]
-			])
-		print("=== Final Simulation State ===")
-		print("  wall=%.3fs sim=%.3fs tick=%d paused=%s scale=%.1f tod=%.1f" % [
-			_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick,
-			str(_sim_time.is_paused), _sim_time.time_scale, _sim_time.get_time_of_day()
-		])
-		if _agent != null:
-			var agent_dict: Dictionary = _agent.get_agent_dict()
-			print("  AGENT: id=%s status=%s pos=(%.3f, %.3f, %.3f) heading=%.2f world_time=%.3f goal=%s" % [
-				agent_dict["id"], agent_dict["status"],
-				agent_dict["position"]["x"], agent_dict["position"]["y"], agent_dict["position"]["z"],
-				agent_dict["heading_radians"], agent_dict["world_time_s"], agent_dict["current_goal"]
-			])
-		print("==========================")
-		
-		# Record final world state and run_ended event before ending run
-		if _event_recorder:
-			if not _agent_session_established:
-				# No agent ever connected, so the run contains no agent behavior.
-				# Persist it as invalid instead of a misleading completed record.
-				_event_recorder.fail_run("Agent session was never established")
-			elif not _agent_session_connected:
-				# The session completed a handshake but is still lost at the end,
-				# so agent-driven behavior is missing for the remainder. A
-				# transient reconnect clears this via the connected signal.
-				_event_recorder.fail_run("Agent session was disconnected before run end")
-			else:
-				# Build final world state snapshot
-				var final_objects: Array = []
-				for obj in objects:
-					var meta: Dictionary = obj.get_metadata()
-					var p: Vector3 = obj.position
-					final_objects.append({
-						"instance_id": meta["instance_id"],
-						"type_id": meta.get("type_id", "unknown"),
-						"position": {"x": p.x, "y": p.y, "z": p.z},
-						"sleeping": obj.is_sleeping(),
-					})
-				var final_agent_state: Dictionary = {}
-				if _agent != null:
-					var agent_dict: Dictionary = _agent.get_agent_dict()
-					final_agent_state = {
-						"id": agent_dict["id"],
-						"status": agent_dict["status"],
-						"position": agent_dict["position"],
-						"heading_radians": agent_dict["heading_radians"],
-					}
+func _vector_to_dict(v: Vector3) -> Dictionary:
+	return {"x": v.x, "y": v.y, "z": v.z}
 
-				# Emit run_ended domain event
-				_append_domain_event("run_ended", "", {
-					"description": "Simulation ended",
-					"final_objects": final_objects,
-					"final_agent_state": final_agent_state,
-				})
+func _append_domain_event(event_family: String, instance_id: String, payload: Dictionary) -> void:
+	if _event_recorder:
+		_event_recorder.append_event(event_family, instance_id, payload, _world_revision)
 
-				# End run with cumulative run time
-				var total_run_time = _cumulative_run_time + _sim_time.simulation_time
-				_event_recorder.end_run(total_run_time)
-		get_tree().quit()
-
-func _on_agent_session_connected(_server_id: String) -> void:
+func _on_hello_ack(ack: Dictionary) -> void:
 	_agent_session_established = true
 	_agent_session_connected = true
+	print("Agent session established: %s" % [ack.get("session_id", "unknown")])
 
-func _on_agent_session_disconnected(_reason: String) -> void:
-	# Reconnecting fires connected again, so only a session still lost at run
-	# end invalidates the record.
+func _on_connection_failed() -> void:
+	print("WebSocket connection failed")
+	_fallback_to_local_mock()
+
+func _on_disconnected() -> void:
+	print("WebSocket disconnected")
 	_agent_session_connected = false
 
-# ProtocolHandler signal handlers
-func _on_action_received(action: Dictionary) -> void:
-	# Agent service sent an Action or Intention command - execute it via Agent
-	if _agent:
-		# Handle both Action (action_type_id) and Intention (intention_type_id) message formats
-		var action_type = action.get("action_type_id", action.get("intention_type_id", ""))
-		var target_id = action.get("target_instance_id", "")
-		# Preserve the command id so terminal results can be correlated with the
-		# exact request the agent service is waiting on.
-
-		# Trace: world.action.execute (world executing an agent-service command)
-		var action_correlation = action.get("correlation", {})
-		var span = _trace.start_span(
-			_trace_template.SPAN_ACTION_EXECUTE,
-			{
-				"trace_id": action_correlation.get("trace_id", ""),
-				"span_id": action_correlation.get("span_id", ""),
-			},
-			_trace.bounded_attributes(
-				_protocol_handler.experiment_id, _protocol_handler.scenario_id,
-				_protocol_handler.scenario_version, _protocol_handler.agent_id,
-				_world_revision, 0, 0.0, "world", "1.0.0",
-			),
-		)
-		var command_id = action.get("id", "")
-		if command_id != "":
-			_active_action_spans[command_id] = span
-		_agent.execute_action(action_type, target_id, command_id)
-		# Do NOT end span here; it will be ended in the lifecycle handler.
-
-func _on_action_result(result: Dictionary) -> void:
-	# ActionResult received (response to action we sent) - currently not used since agent service drives actions
-	print("Room: ActionResult received: %s" % [result])
-
-func _on_stale_request(request_id: String, current_revision: int) -> void:
-	print("Room: Stale request rejected, current_revision=%d" % [current_revision])
-	# Agent will re-plan automatically via agent service
-
-# EventRecorder signal handlers
-func _on_run_failed(run_id: String, reason: String) -> void:
-	print("RUN FAILED: %s - %s" % [run_id, reason])
-	get_tree().quit()
-
-# Agent action lifecycle handlers - send results to agent service AND record to run
-func _lifecycle_action_id(command_id: String, action_type_id: String) -> String:
-	# Echo the originating command id so the agent can match the terminal result
-	# to the exact request it is waiting on. Fall back to a generated id for
-	# local callers (e.g. the legacy mock controller).
-	if command_id != "":
-		return command_id
-	return "act_%s_%04d" % [action_type_id, _event_recorder.get_run_status().event_count + 1]
-
-func _on_agent_action_started(action_type_id: String, target_instance_id: String, command_id: String) -> void:
-	_active_action_context = {
-		"action_type_id": action_type_id,
-		"target_instance_id": target_instance_id,
-		"command_id": command_id,
-	}
-	if _protocol_handler:
-		var action = {
-			"type": "Action",
-			"id": _lifecycle_action_id(command_id, action_type_id),
-			"run_id": _event_recorder.get_run_status().run_id,
-			"timestamp_s": _sim_time.simulation_time,
-			"version": "1.0.0",
-			"agent_id": _agent.agent_id,
-			"action_type_id": action_type_id,
-			"target_instance_id": target_instance_id,
-			"parameters": {},
-			"intention_id": "",
-			"result": "pending",
-			"correlation": _protocol_handler._make_correlation(),
-		}
-		_protocol_handler.send_action(action)
-	
-	_append_domain_event("agent_action_started", target_instance_id, {
-		"action_type": action_type_id,
-		"command_id": command_id,
-		"description": "Agent started %s action" % [action_type_id],
-	})
-
-func _take_action_context(action_type_id: String, command_id: String) -> Dictionary:
-	var context = _active_action_context
-	if context.get("action_type_id", "") != action_type_id \
-			or context.get("command_id", "") != command_id:
-		return {"target_instance_id": "", "command_id": command_id}
-	_active_action_context = {}
-	return context
-
-func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
-	var context = _take_action_context(action_type_id, command_id)
-	# Get the execution span for this action (will end it after sending result).
-	var span = _active_action_spans.get(command_id)
-	if _protocol_handler:
-		var action = {
-			"type": "Action",
-			"id": _lifecycle_action_id(command_id, action_type_id),
-			"run_id": _event_recorder.get_run_status().run_id,
-			"timestamp_s": _sim_time.simulation_time,
-			"version": "1.0.0",
-			"agent_id": _agent.agent_id,
-			"action_type_id": action_type_id,
-			"target_instance_id": context["target_instance_id"],
-			"parameters": {},
-			"intention_id": "",
-			"result": result,
-			"correlation": {},  # Will be filled by send_terminal_result
-		}
-		# Send terminal result using the execution span as parent trace context.
-		_protocol_handler.send_terminal_result(action, span)
-	# Now end the execution span - it contains both the action execution AND its result publication.
-	if span:
-		_active_action_spans.erase(command_id)
-		_trace.end_span(span)
-	
-	_append_domain_event("agent_action_completed", context["target_instance_id"], {
-		"action_type": action_type_id,
-		"command_id": command_id,
-		"result": result,
-		"description": "Agent completed %s action with result: %s" % [action_type_id, result],
-	})
-
-func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
-	var context = _take_action_context(action_type_id, command_id)
-	var span = _active_action_spans.get(command_id)
-	if _protocol_handler:
-		var action = {
-			"type": "Action",
-			"id": _lifecycle_action_id(command_id, action_type_id),
-			"run_id": _event_recorder.get_run_status().run_id,
-			"timestamp_s": _sim_time.simulation_time,
-			"version": "1.0.0",
-			"agent_id": _agent.agent_id,
-			"action_type_id": action_type_id,
-			"target_instance_id": context["target_instance_id"],
-			"parameters": {},
-			"intention_id": "",
-			"result": "failure",
-			"correlation": {},
-		}
-		_protocol_handler.send_terminal_result(action, span)
-	if span:
-		_active_action_spans.erase(command_id)
-		_trace.end_span(span)
-	
-	_append_domain_event("agent_action_failed", context["target_instance_id"], {
-		"action_type": action_type_id,
-		"command_id": command_id,
-		"reason": reason,
-		"description": "Agent %s action failed: %s" % [action_type_id, reason],
-	})
-
-func _on_agent_action_interrupted(action_type_id: String, command_id: String) -> void:
-	var context = _take_action_context(action_type_id, command_id)
-	var span = _active_action_spans.get(command_id)
-	if _protocol_handler:
-		var action = {
-			"type": "Action",
-			"id": _lifecycle_action_id(command_id, action_type_id),
-			"run_id": _event_recorder.get_run_status().run_id,
-			"timestamp_s": _sim_time.simulation_time,
-			"version": "1.0.0",
-			"agent_id": _agent.agent_id,
-			"action_type_id": action_type_id,
-			"target_instance_id": context["target_instance_id"],
-			"parameters": {},
-			"intention_id": "",
-			"result": "failure",
-			"correlation": {},
-		}
-		_protocol_handler.send_terminal_result(action, span)
-	if span:
-		_active_action_spans.erase(command_id)
-		_trace.end_span(span)
-	
-	_append_domain_event("agent_action_interrupted", context["target_instance_id"], {
-		"action_type": action_type_id,
-		"command_id": command_id,
-		"description": "Agent %s action interrupted" % [action_type_id],
-	})
-
-func _get_nearby_objects() -> Array:
-	var nearby = []
-	for obj in objects:
-		var meta = obj.get_metadata()
-		nearby.append({
-			"instance_id": meta["instance_id"],
-			"type_id": meta.get("type_id", "unknown"),
-			"position": {
-				"x": obj.position.x,
-				"y": obj.position.y,
-				"z": obj.position.z
-			}
-		})
-	return nearby
-
-func _build_room_boundaries() -> void:
-	_create_static_body("floor", Vector3(0, -half_size.y, 0), Vector3(half_size.x * 2, 0.2, half_size.z * 2))
-	_create_static_body("ceiling", Vector3(0, half_size.y, 0), Vector3(half_size.x * 2, 0.2, half_size.z * 2))
-	_create_static_body("wall_west", Vector3(-half_size.x, 0, 0), Vector3(0.2, half_size.y * 2, half_size.z * 2))
-	_create_static_body("wall_east", Vector3(half_size.x, 0, 0), Vector3(0.2, half_size.y * 2, half_size.z * 2))
-	_create_static_body("wall_north", Vector3(0, 0, -half_size.z), Vector3(half_size.x * 2, half_size.y * 2, 0.2))
-	_create_static_body("wall_south", Vector3(0, 0, half_size.z), Vector3(half_size.x * 2, half_size.y * 2, 0.2))
-
-func _create_static_body(name: String, position: Vector3, size: Vector3) -> void:
-	var body: StaticBody3D = StaticBody3D.new()
-	body.name = name
-	body.position = position
-	add_child(body)
-
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var box: BoxShape3D = BoxShape3D.new()
-	box.size = size
-	shape.shape = box
-	body.add_child(shape)
-
-func _spawn_objects() -> void:
-	var definitions: Array[Dictionary] = [
-		{
-			"instance_id": "obj_wood_cube",
-			"type_id": "wood_cube",
-			"name": "Wood Cube",
-			"kind": "artifact",
-			"shape_type": "box",
-			"mass_kg": 2.0,
-			"brittleness": 0.1,
-			"throwable": true,
-			"stackable": false,
-			"friction": 0.8,
-			"bounciness": 0.3,
-			"density_kg_per_m3": 650,
-			"dimensions_m": { "x": 0.6, "y": 0.6, "z": 0.6 },
-			"position": Vector3(0, 5, 0),
-		},
-		{
-			"instance_id": "obj_metal_sphere",
-			"type_id": "metal_sphere",
-			"name": "Metal Sphere",
-			"kind": "mineral",
-			"shape_type": "sphere",
-			"mass_kg": 5.0,
-			"brittleness": 0.05,
-			"throwable": true,
-			"stackable": false,
-			"friction": 0.4,
-			"bounciness": 0.8,
-			"density_kg_per_m3": 7800,
-			"dimensions_m": { "x": 0.4, "y": 0.4, "z": 0.4 },
-			"position": Vector3(2, 5, 0),
-		},
-		{
-			"instance_id": "obj_glass_box",
-			"type_id": "glass_box",
-			"name": "Glass Box",
-			"kind": "artifact",
-			"shape_type": "box",
-			"mass_kg": 1.0,
-			"brittleness": 0.9,
-			"throwable": true,
-			"stackable": false,
-			"friction": 0.9,
-			"bounciness": 0.5,
-			"density_kg_per_m3": 2500,
-			"dimensions_m": { "x": 0.5, "y": 0.5, "z": 0.5 },
-			"position": Vector3(-2, 5, 0),
-		},
-		{
-			"instance_id": "obj_rubber_cylinder",
-			"type_id": "rubber_cylinder",
-			"name": "Rubber Cylinder",
-			"kind": "organic",
-			"shape_type": "cylinder",
-			"mass_kg": 3.0,
-			"brittleness": 0.2,
-			"throwable": true,
-			"stackable": false,
-			"friction": 0.7,
-			"bounciness": 0.7,
-			"density_kg_per_m3": 1100,
-			"dimensions_m": { "x": 0.4, "y": 0.8, "z": 0.4 },
-			"position": Vector3(0, 5, 2),
-		},
-	]
-
-	for defn in definitions:
-		var obj = load("res://src/rigid_object.gd").new()
-		obj.configure(defn)
-		obj.position = defn["position"]
-		_add_object_visual(obj, defn)
-		# Enable contact monitoring so body_entered signals fire on collisions
-		obj.contact_monitor = true
-		obj.max_contacts_reported = 1
-		add_child(obj)
-		objects.append(obj)
-
-		obj.body_entered.connect(func(other_body): _on_object_body_entered(obj, other_body))
-		obj.object_landed.connect(func(instance_id): _on_object_landed(instance_id))
-
-func _add_object_visual(obj: RigidBody3D, defn: Dictionary) -> void:
-	var dimensions: Dictionary = defn.get("dimensions_m", {})
-	var sx := float(dimensions.get("x", 0.5))
-	var sy := float(dimensions.get("y", 0.5))
-	var sz := float(dimensions.get("z", 0.5))
-	var visual := MeshInstance3D.new()
-	match String(defn.get("shape_type", "box")):
-		"sphere":
-			var sphere := SphereMesh.new()
-			sphere.radius = sx * 0.5
-			sphere.height = sx
-			visual.mesh = sphere
-		"cylinder":
-			var cylinder := CylinderMesh.new()
-			cylinder.top_radius = sx
-			cylinder.bottom_radius = sx
-			cylinder.height = sy
-			visual.mesh = cylinder
-		_:
-			var box := BoxMesh.new()
-			box.size = Vector3(sx, sy, sz)
-			visual.mesh = box
-
-	var material := StandardMaterial3D.new()
-	match String(defn.get("type_id", "")):
-		"wood_cube":
-			material.albedo_color = Color("#b7763e")
-			material.roughness = 0.82
-		"metal_sphere":
-			material.albedo_color = Color("#8db8d0")
-			material.metallic = 0.72
-			material.roughness = 0.24
-		"glass_box":
-			material.albedo_color = Color(0.35, 0.82, 0.94, 0.58)
-			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			material.roughness = 0.12
-		"rubber_cylinder":
-			material.albedo_color = Color("#dd6846")
-			material.roughness = 0.92
-	visual.material_override = material
-	obj.add_child(visual)
-
-	var label := Label3D.new()
-	label.name = "ObjectLabel"
-	label.text = String(defn.get("name", defn.get("type_id", "Object")))
-	label.position = Vector3(0, sy * 0.5 + 0.3, 0)
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.font_size = 28
-	label.pixel_size = 0.006
-	label.outline_size = 5
-	label.modulate = Color("#f4f0df")
-	obj.add_child(label)
-
-func _on_object_body_entered(obj, other_body: Node) -> void:
-	var other_id: String = ""
-	if other_body.has_meta("instance_id"):
-		other_id = other_body.get_meta("instance_id")
-	elif other_body.name:
-		other_id = other_body.name
-	object_collided.emit(obj.instance_id, other_id)
-	_append_domain_event("object_collided", obj.instance_id, {"other_id": other_id, "description": "Collision"})
-
-func _on_object_landed(instance_id: String) -> void:
-	_landed_count += 1
-	object_landed.emit(instance_id)
-	_append_domain_event("object_landed", instance_id, {"description": "Object landed"})
-
-func _append_domain_event(event_type_id: String, target_id: String, metadata: Dictionary) -> void:
-	if _event_recorder == null:
-		return
-	var event = {
-		"id": "evt_%s_%04d" % [event_type_id, _event_recorder.get_run_status().event_count + 1],
-		"run_id": _event_recorder.get_run_status().run_id,
-		"timestamp_s": _cumulative_run_time + _sim_time.simulation_time,
-		"version": "1.0.0",
-		"event_type_id": event_type_id,
-		"target_instance_id": target_id,
-		"description": metadata.get("description", ""),
-		"severity": "info",
-		"metadata": metadata,
-	}
-	var success = _event_recorder.append_event(event)
-	if not success:
-		print("ERROR: Failed to append domain event: %s" % [event_type_id])
-
-func apply_impulse(instance_id: String, impulse: Vector3) -> void:
-	var obj = _find_object(instance_id)
-	if obj:
-		obj.apply_central_impulse(impulse)
-		object_impulse_applied.emit(instance_id, impulse)
-		_append_domain_event("object_impulse_applied", instance_id, {
-			"impulse": _vector_to_dict(impulse),
-			"description": "Applied impulse to %s" % [instance_id],
-		})
-
-func _find_object(instance_id: String):
-	for obj in objects:
-		if obj.instance_id == instance_id:
-			return obj
-	return null
-
-func get_object_metadata() -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	for obj in objects:
-		result.append(obj.get_metadata())
-	return result
-
-func get_settled_objects() -> Array[String]:
-	var result: Array[String] = []
-	for obj in objects:
-		if obj.is_sleeping():
-			result.append(obj.instance_id)
-	return result
-
-func _animate_day_night(hour: float) -> void:
-	if _light == null:
-		return
-	# Map time_of_day (0-24) to light rotation and energy
-	# 6h = sunrise (low east), 12h = noon (overhead), 18h = sunset (low west), 0h = midnight (below horizon)
-	var angle: float = (hour - 6.0) / 24.0 * TAU  # radians, 0 at sunrise
-	var elevation: float = sin(angle)  # 1 at noon, -1 at midnight
-	var azimuth: float = cos(angle)    # 1 at sunrise/noon side, -1 at sunset side
-	_light.rotation_degrees = Vector3(-90.0 + elevation * 45.0, azimuth * 30.0, 0.0)
-	# Energy: full at noon, dim at dawn/dusk, minimal at night
-	var energy: float = clamp(0.2 + 0.8 * max(0.0, sin(angle)), 0.1, 1.0)
-	_light.light_energy = energy
-
-func _spawn_agent() -> void:
-	# Create and configure Agent
-	_agent = _agent_template.new()
-	add_child(_agent)
-	_agent.set_room(self, _sim_time)
-
-	# Add a collision shape so move_and_slide() can test against walls/objects
-	var agent_shape = CollisionShape3D.new()
-	var agent_capsule = CapsuleShape3D.new()
-	agent_capsule.radius = 0.3
-	agent_capsule.height = 1.0
-	agent_shape.shape = agent_capsule
-	_agent.add_child(agent_shape)
-
-	# Add visible geometry so the agent is visible in rendered output
-	var agent_mesh = MeshInstance3D.new()
-	var capsule_mesh = CapsuleMesh.new()
-	capsule_mesh.radius = 0.3
-	capsule_mesh.height = 1.0
-	agent_mesh.mesh = capsule_mesh
-	var agent_material := StandardMaterial3D.new()
-	agent_material.albedo_color = Color("#369cff")
-	agent_material.metallic = 0.12
-	agent_material.roughness = 0.3
-	agent_mesh.material_override = agent_material
-	_agent.add_child(agent_mesh)
-
-	var agent_label := Label3D.new()
-	agent_label.name = "AgentLabel"
-	agent_label.text = _agent.agent_name
-	agent_label.position = Vector3(0, 0.95, 0)
-	agent_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	agent_label.font_size = 32
-	agent_label.pixel_size = 0.006
-	agent_label.outline_size = 6
-	agent_label.modulate = Color("#f4f0df")
-	_agent.add_child(agent_label)
-
-	# Add first-person camera at agent's forehead (eye level, slightly forward)
-	# Agent capsule: height=1.0 (y: -0.5 to 0.5), radius=0.3
-	# Forehead/eye position: y=0.35 (eye level), z=-0.35 (forward, -Z is forward when heading=PI)
-	var agent_camera = Camera3D.new()
-	agent_camera.name = "AgentCamera"
-	agent_camera.current = true
-	# Position at forehead: slightly below top (0.5), slightly forward of center (-radius)
-	agent_camera.position = Vector3(0, 0.35, -0.35)
-	# Ensure camera rotates with agent (inherits rotation from parent)
-	_agent.add_child(agent_camera)
-
-	# Connect Agent action lifecycle signals to ProtocolHandler (to send results to agent service)
-	# and to EventRecorder (to persist action events to run record)
-	_agent.action_started.connect(_on_agent_action_started)
-	_agent.action_completed.connect(_on_agent_action_completed)
-	_agent.action_failed.connect(_on_agent_action_failed)
-	_agent.action_interrupted.connect(_on_agent_action_interrupted)
-
-	# The external agent service now drives the agent by sending Action messages.
-	# ProtocolHandler receives Action messages and Room forwards them to Agent.execute_action().
-	# MockController has been removed.
-
-	print("Agent spawned: id=%s at %s" % [_agent.agent_id, str(_agent.global_position)])
+func _fallback_to_local_mock() -> void:
+	if _use_local_mock or _mock_controller != null:
+		return  # Already using mock
+	if _ws_client != null and _ws_client.get_connection_state() == WebSocketClient.ConnectionState.CONNECTED:
+		return  # Connected successfully, don't fallback
+	print("WebSocket connection failed, falling back to local MockController")
+	_use_local_mock = true
+	# Do NOT mark session as established/connected for fallback.
+	# Fallback uses different policy (2s cooldown, no seeded delay) than external
+	# service (30-tick cooldown, 50% seeded delay). Marking connected would
+	# create identical run fingerprints for different behaviors.
+	if _ws_client != null:
+		_ws_client.queue_free()
+		_ws_client = null
+	if _protocol_handler != null:
+		_protocol_handler.queue_free()
+		_protocol_handler = null
+	_setup_local_mock_controller(_event_recorder.run_id, hash(_event_recorder.run_id) & 0x7FFFFFFF)
 
 func _setup_local_mock_controller(run_id: String, random_seed: int) -> void:
 	# Create and configure MockController for local testing
@@ -1111,10 +655,10 @@ func _setup_local_mock_controller(run_id: String, random_seed: int) -> void:
 		{"target_id": "obj_nonexistent", "action_type": "touch"},
 		{"target_id": "", "action_type": "wait"},
 	]
-	for target_id in AGENT_SERVICE_TARGET_IDS:
+	for target_id in _agent_service_target_ids:
 		targets.append({"target_id": target_id, "action_type": "move"})
 		var touch := {"target_id": target_id, "action_type": "touch"}
-		if target_id in AGENT_SERVICE_INTERRUPT_TARGET_IDS:
+		if target_id in _agent_service_interrupt_target_ids:
 			touch["interrupt_after"] = true
 		targets.append(touch)
 	
@@ -1125,27 +669,118 @@ func _setup_local_mock_controller(run_id: String, random_seed: int) -> void:
 	_mock_controller.controller_action_issued.connect(_on_mock_action_issued)
 	print("Local MockController configured with %d targets" % [targets.size()])
 
-func _fallback_to_local_mock(run_id: String, random_seed: int) -> void:
-	if _use_local_mock or _mock_controller != null:
-		return  # Already using mock
-	if _ws_client != null and _ws_client.get_connection_state() == WebSocketClient.ConnectionState.CONNECTED:
-		return  # Connected successfully, don't fallback
-	print("WebSocket connection failed, falling back to local MockController")
-	_use_local_mock = true
-	# Do NOT mark session as established/connected for fallback.
-	# Fallback uses different policy (2s cooldown, no seeded delay) than external
-	# service (30-tick cooldown, 50% seeded delay). Marking connected would
-	# create identical run fingerprints for different behaviors.
-	# Clean up WebSocket client
-	if _ws_client != null:
-		_ws_client.queue_free()
-		_ws_client = null
-	if _protocol_handler != null:
-		_protocol_handler.queue_free()
-		_protocol_handler = null
-	_setup_local_mock_controller(run_id, random_seed)
-
 func _on_mock_action_issued(action_type_id: String, target_instance_id: String) -> void:
 	# Observational only - MockController already executed the action before emitting.
 	# This handler is for logging/metrics correlation, not for re-executing actions.
 	print("MOCK_ACTION_ISSUED: action=%s target=%s" % [action_type_id, target_instance_id])
+
+func _send_observation(observation: Dictionary) -> void:
+	if not _ws_client or _ws_client.get_connection_state() != WebSocketClient.ConnectionState.CONNECTED:
+		return
+	var msg = observation.duplicate()
+	# Start the publish span BEFORE creating correlation, so the span ID
+	# matches the outgoing message's correlation.
+	var span = _trace.start_span(
+		"world.observation.publish",
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, _agent.agent_id,
+			"world", "1.0.0"
+		),
+	)
+	var correlation = _make_correlation()
+	correlation["trace_id"] = span.get("trace_id", "")
+	correlation["span_id"] = span.get("span_id", "")
+	msg["correlation"] = correlation
+	_ws_client.send_message(msg)
+	observation_ready.emit(msg)
+	
+	# Record outbound Observation protocol metrics
+	if _trace:
+		var attrs = {
+			"message.type": "Observation",
+			"direction": "outbound",
+			"outcome": "success",
+		}
+		_trace.record_counter("agent_world_protocol_message_total", 1, attrs, experiment_id, scenario_id, scenario_version, _agent.agent_id, _world_revision, _sim_time.simulation_tick if _sim_time else 0, _sim_time.simulation_time if _sim_time else 0.0)
+
+func _make_correlation() -> Dictionary:
+	return {
+		"experiment_id": experiment_id,
+		"scenario_id": scenario_id,
+		"scenario_version": scenario_version,
+		"run_id": _event_recorder.run_id if _event_recorder else "",
+		"agent_id": _agent.agent_id,
+		"world_revision": _world_revision,
+		"simulation_tick": _sim_time.simulation_tick if _sim_time else 0,
+		"simulation_time": _sim_time.simulation_time if _sim_time else 0.0,
+		"component": "world",
+		"component_version": "1.0.0",
+	}
+
+func _on_observation_received(observation: Dictionary) -> void:
+	# Handle incoming observation (world state update)
+	if _protocol_handler:
+		_protocol_handler.handle_observation(observation)
+
+func _send_intention(intention: Dictionary) -> void:
+	if not _ws_client or _ws_client.get_connection_state() != WebSocketClient.ConnectionState.CONNECTED:
+		return
+	var msg = intention.duplicate()
+	var span = _trace.start_span(
+		"world.intention.publish",
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, _agent.agent_id,
+			"world", "1.0.0"
+		),
+	)
+	var correlation = _make_correlation()
+	correlation["trace_id"] = span.get("trace_id", "")
+	correlation["span_id"] = span.get("span_id", "")
+	msg["correlation"] = correlation
+	_ws_client.send_message(msg)
+
+func _send_action(action: Dictionary) -> void:
+	if not _ws_client or _ws_client.get_connection_state() != WebSocketClient.ConnectionState.CONNECTED:
+		return
+	var msg = action.duplicate()
+	var span = _trace.start_span(
+		"world.action.execute",
+		{},
+		_trace.bounded_attributes(
+			experiment_id, scenario_id, scenario_version, _agent.agent_id,
+			"world", "1.0.0"
+		),
+	)
+	var correlation = _make_correlation()
+	correlation["trace_id"] = span.get("trace_id", "")
+	correlation["span_id"] = span.get("span_id", "")
+	msg["correlation"] = correlation
+	msg["request_world_revision"] = _world_revision
+	_ws_client.send_message(msg)
+
+func _on_action_result(result: Dictionary) -> void:
+	if _protocol_handler:
+		_protocol_handler.handle_action_result(result)
+	
+	# Emit action result event
+	_append_domain_event("action_result", "", {
+		"action_id": result.get("id", ""),
+		"action_type": result.get("action_type_id", ""),
+		"target_id": result.get("target_instance_id", ""),
+		"result": result.get("result", "unknown"),
+		"simulation_tick": _sim_time.simulation_tick if _sim_time else 0,
+	})
+
+func _on_stale_request(request_id: String) -> void:
+	_append_domain_event("stale_request_rejected", "", {
+		"request_id": request_id,
+		"world_revision": _world_revision,
+		"simulation_tick": _sim_time.simulation_tick if _sim_time else 0,
+	})
+
+func _on_run_failed(reason: String) -> void:
+	print("RUN FAILED: %s - %s" % [_event_recorder.run_id if _event_recorder else "unknown", reason])
+	set_process(false)
+	set_physics_process(false)

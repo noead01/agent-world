@@ -538,8 +538,9 @@ func _canonicalize_config(config: Variant) -> Variant:
 # === Core room functionality (physics, boundaries, agent, WebSocket) ===
 
 func _build_room_boundaries() -> void:
-	# Floor
-	var floor = _create_boundary_box("Floor", Vector3(half_size.x * 2 + 1, 0.2, half_size.z * 2 + 1), Vector3(0, -half_size.y - 0.1, 0))
+	# Floor - match visual floor in main.tscn (position y=-13.43, height=0.05, top at -13.405)
+	# Collision floor height=0.2, so center at -13.405 - 0.1 = -13.505
+	var floor = _create_boundary_box("Floor", Vector3(half_size.x * 2 + 1, 0.2, half_size.z * 2 + 1), Vector3(0, -13.505, 0))
 	# Ceiling
 	var ceiling = _create_boundary_box("Ceiling", Vector3(half_size.x * 2 + 1, 0.2, half_size.z * 2 + 1), Vector3(0, half_size.y + 0.1, 0))
 	# Walls

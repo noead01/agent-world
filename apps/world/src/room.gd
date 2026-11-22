@@ -683,7 +683,39 @@ func _process(delta: float) -> void:
 func _physics_process(delta: float) -> void:
 	# Physics is handled by Jolt at fixed timestep
 	# This is here for any custom physics logic
-	pass
+	
+	# Send world state to ProtocolHandler for agent observation
+	if _protocol_handler and _agent_session_connected:
+		_world_revision += 1
+		var agent_dict: Dictionary = _agent.get_agent_dict()
+		var nearby_objects: Array = _get_nearby_objects()
+		_protocol_handler.tick_world_state(
+			_world_revision,
+			_sim_time.simulation_tick if _sim_time else 0,
+			_sim_time.simulation_time if _sim_time else 0.0,
+			agent_dict,
+			nearby_objects
+		)
+
+func _get_nearby_objects(radius: float = 10.0) -> Array:
+	var nearby: Array = []
+	if not _agent:
+		return nearby
+	var agent_pos: Vector3 = _agent.global_position
+	for obj in objects:
+		var dist: float = obj.global_position.distance_to(agent_pos)
+		if dist <= radius:
+			var meta: Dictionary = obj.get_metadata()
+			nearby.append({
+				"instance_id": meta["instance_id"],
+				"type_id": meta.get("type_id", "unknown"),
+				"position": {
+					"x": obj.global_position.x,
+					"y": obj.global_position.y,
+					"z": obj.global_position.z,
+				},
+			})
+	return nearby
 
 func _emit_health_status() -> void:
 	if not _ws_client or _ws_client.get_connection_state() != WebSocketClient.ConnectionState.CONNECTED:

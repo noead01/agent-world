@@ -545,10 +545,21 @@ func _spawn_agent() -> void:
 	_agent = _agent_template.new()
 	_agent.name = "Agent"
 	_agent.global_position = Vector3(0, -12.9, 1.5)
+	
+	# Add collision shape (capsule) so agent stands on floor
+	# Capsule height=1.12 (extends from y=-0.56 to y=+0.56), radius=0.3
+	# Spawn y=-12.9 aligns capsule bottom with floor at y=-13.5
+	var collision_shape = CollisionShape3D.new()
+	var capsule = CapsuleShape3D.new()
+	capsule.height = 1.12
+	capsule.radius = 0.3
+	collision_shape.shape = capsule
+	_agent.add_child(collision_shape)
+	
 	add_child(_agent)
 	
 	# Add first-person camera at agent's forehead (eye level, slightly forward)
-	# Agent capsule: height=1.0 (y: -0.5 to 0.5), radius=0.3
+	# Agent capsule: height=1.12 (y: -0.56 to 0.56), radius=0.3
 	# Forehead/eye position: y=0.35 (eye level), z=-0.35 (forward, -Z is forward when heading=PI)
 	# Agent navigate_toward uses heading=0 -> world +Z, but Camera3D looks along local -Z
 	# So we rotate the camera by PI (180 degrees) to face the travel direction
@@ -556,7 +567,7 @@ func _spawn_agent() -> void:
 	var agent_camera = Camera3D.new()
 	agent_camera.name = "AgentCamera"
 	agent_camera.current = true
-	# Position at forehead: slightly below top (0.5), slightly forward of center (-radius)
+	# Position at forehead: slightly below top (0.56), slightly forward of center (-radius)
 	agent_camera.position = Vector3(0, 0.35, -0.35)
 	# Rotate 180 degrees around Y so camera faces travel direction
 	# (Agent heading=0 moves toward +Z, camera looks along -Z local)

@@ -544,6 +544,12 @@ func _create_boundary_box(name: String, size: Vector3, position: Vector3) -> Sta
 	box.size = size
 	shape.shape = box
 	body.add_child(shape)
+	# Add physics material with 0 bounce to prevent micro-bouncing
+	if name == "Floor":
+		var material: PhysicsMaterial = PhysicsMaterial.new()
+		material.friction = 0.9
+		material.bounce = 0.0
+		body.physics_material_override = material
 	body.global_position = position
 	add_child(body)
 	return body

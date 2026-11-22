@@ -128,6 +128,7 @@ func _spawn_objects() -> void:
 		# Enable contact monitoring so body_entered signals fire on collisions
 		obj.contact_monitor = true
 		obj.max_contacts_reported = 1
+		add_child(obj)
 		objects.append(obj)
 		obj.body_entered.connect(_on_object_landed.bind(obj.instance_id))
 

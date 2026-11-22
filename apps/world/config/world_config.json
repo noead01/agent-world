@@ -1,81 +1,95 @@
 {
   "version": "1",
   "room": {
-    "half_size": {"x": 13.5, "y": 13.5, "z": 13.5},
-    "gravity": {"x": 0.0, "y": -9.8, "z": 0.0},
-    "fixed_timestep_hz": 60.0,
-    "physics_engine": "JoltPhysics",
-    "boundary_thickness_m": 0.2
+	"half_size": {"x": 13.5, "y": 13.5, "z": 13.5},
+	"gravity": {"x": 0.0, "y": -9.8, "z": 0.0},
+	"fixed_timestep_hz": 60.0,
+	"physics_engine": "JoltPhysics",
+	"boundary_thickness_m": 0.2
   },
   "protocol": {
-    "stale_threshold": 5,
-    "world_state_interval_ticks": 5
+	"stale_threshold": 5,
+	"world_state_interval_ticks": 5
   },
   "experiment": {
-    "experiment_id": "exp_autonomous_discovery_01",
-    "scenario_id": "first_benchmark_room",
-    "scenario_version": "1.0.0"
+	"experiment_id": "exp_autonomous_discovery_01",
+	"scenario_id": "first_benchmark_room",
+	"scenario_version": "1.0.0"
   },
   "agent": {
-    "agent_id": "wanderer_01",
-    "agent_type_id": "autonomous_discovery_v1",
-    "move_speed": 3.0,
-    "turn_speed": 2.5,
-    "reach_distance": 1.2,
-    "spawn_position": {"x": 0.0, "y": -12.9, "z": 1.5},
-    "collision_shape": {"type": "capsule", "radius_m": 0.3, "height_m": 1.0}
+	"agent_id": "wanderer_01",
+	"agent_type_id": "autonomous_discovery_v1",
+	"move_speed": 3.0,
+	"turn_speed": 2.5,
+	"reach_distance": 1.2,
+	"spawn_position": {"x": 0.0, "y": -12.9, "z": 1.5},
+	"collision_shape": {"type": "capsule", "radius_m": 0.3, "height_m": 1.0}
   },
   "agent_service": {
-    "policy_version": "2",
-    "action_delay_ticks": 12,
-    "action_cooldown_ticks": 30,
-    "action_delay_probability": 0.5,
-    "target_ids": ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"],
-    "interrupt_target_ids": ["obj_wood_cube"]
+	"policy_version": "2",
+	"action_delay_ticks": 12,
+	"action_cooldown_ticks": 30,
+	"action_delay_probability": 0.5,
+	"target_ids": ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"],
+	"interrupt_target_ids": ["obj_wood_cube"]
   },
   "drive_policy": {
-    "version": "1",
-    "thresholds": {
-      "curiosity_explore": 0.7,
-      "uncertainty_investigate": 0.6,
-      "integrity_safety": 0.3
-    },
-    "initial_values": {
-      "curiosity": 0.5,
-      "uncertainty": 0.5,
-      "physical_integrity": 1.0
-    },
-    "update_rates": {
-      "curiosity": {
-        "novel_object_boost": 0.15,
-        "moved_object_boost": 0.05,
-        "decay_rate": 0.01
-      },
-      "uncertainty": {
-        "high_prediction_error_boost": 0.1,
-        "medium_prediction_error_boost": 0.03,
-        "good_prediction_decay": 0.005,
-        "unexpected_movement_boost": 0.05,
-        "decay_rate": 0.005
-      },
-      "physical_integrity": {
-        "collision_risk_penalty": 0.005,
-        "recovery_rate": 0.002,
-        "collision_distance_threshold": 0.5
-      }
-    },
-    "prediction_error_thresholds": {
-      "high": 0.04,
-      "medium": 0.01,
-      "unexpected_movement": 0.25
-    }
+	"version": "1",
+	"thresholds": {
+	  "curiosity_explore": 0.7,
+	  "uncertainty_investigate": 0.6,
+	  "integrity_safety": 0.3
+	},
+	"initial_values": {
+	  "curiosity": 0.5,
+	  "uncertainty": 0.5,
+	  "physical_integrity": 1.0
+	},
+	"update_rates": {
+	  "curiosity": {
+		"novel_object_boost": 0.15,
+		"moved_object_boost": 0.05,
+		"decay_rate": 0.01
+	  },
+	  "uncertainty": {
+		"high_prediction_error_boost": 0.1,
+		"medium_prediction_error_boost": 0.03,
+		"good_prediction_decay": 0.005,
+		"unexpected_movement_boost": 0.05,
+		"decay_rate": 0.005
+	  },
+	  "physical_integrity": {
+		"collision_risk_penalty": 0.005,
+		"recovery_rate": 0.002,
+		"collision_distance_threshold": 0.5
+	  }
+	},
+	"prediction_error_thresholds": {
+	  "high": 0.04,
+	  "medium": 0.01,
+	  "unexpected_movement": 0.25
+	}
   },
   "simulation": {
-    "day_cycle_duration_s": 240.0
+	"day_cycle_duration_s": 240.0,
+	"demo": {
+	  "duration_s": 15.0,
+	  "phase1_time_s": 0.0,
+	  "phase2_time_s": 3.0,
+	  "phase3_time_s": 8.0,
+	  "phase4_time_s": 12.0,
+	  "scale_factor": 2.0,
+	  "impulse1_time_s": 3.0,
+	  "impulse1_target_id": "obj_metal_sphere",
+	  "impulse1_vector": {"x": 3.0, "y": 0.0, "z": 0.0},
+	  "impulse2_time_s": 8.0,
+	  "impulse2_target_id": "obj_rubber_cylinder",
+	  "impulse2_vector": {"x": 0.0, "y": 0.0, "z": -5.0}
+	}
   },
   "metrics": {
-    "health_interval_s": 5.0,
-    "metrics_interval_s": 1.0,
-    "verbose_logs": false
+	"health_interval_s": 5.0,
+	"metrics_interval_s": 1.0,
+	"verbose_logs": false
   }
 }

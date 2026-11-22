@@ -105,11 +105,23 @@ var _verbose_logging: bool = false
 # Demo timing variables (used by _process_demo in subclasses)
 var _demo_timer: float = 0.0
 var _demo_duration: float = 10.0
+# Phase-based demo (for drive behavior demonstration)
+var _demo_phase1_time: float = 0.0   # Curiosity exploration
+var _demo_phase2_time: float = 3.0   # Uncertainty investigation
+var _demo_phase3_time: float = 8.0   # Integrity safety
+var _demo_phase4_time: float = 12.0  # Reset
+var _demo_scale_factor: float = 2.0
+var _demo_impulse1_time: float = 3.0
+var _demo_impulse1_target_id: String = "obj_metal_sphere"
+var _demo_impulse1_vector: Vector3 = Vector3(3.0, 0.0, 0.0)
+var _demo_impulse2_time: float = 8.0
+var _demo_impulse2_target_id: String = "obj_rubber_cylinder"
+var _demo_impulse2_vector: Vector3 = Vector3(0.0, 0.0, -5.0)
+# Legacy demo (kept for compatibility)
 var _demo_pause_time: float = 2.0
 var _demo_resume_time: float = 4.0
 var _demo_scale_time: float = 6.0
 var _demo_reset_time: float = 8.0
-var _demo_scale_factor: float = 2.0
 var _demo_impulse_time: float = 1.0
 var _demo_impulse_target_id: String = "obj_metal_sphere"
 var _demo_impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)

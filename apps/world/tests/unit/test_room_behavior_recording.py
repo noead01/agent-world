@@ -57,7 +57,9 @@ def test_demo_impulse_uses_recorded_impulse_path():
     with open(BENCHMARK_ROOM_FILE) as source:
         content = source.read()
     # BenchmarkRoom calls apply_impulse which is defined in parent Room
-    assert 'apply_impulse(target.instance_id, _demo_impulse_vector)' in content
+    # Two impulses now: _demo_impulse1_vector and _demo_impulse2_vector
+    assert 'apply_impulse(target.instance_id, _demo_impulse1_vector)' in content
+    assert 'apply_impulse(target.instance_id, _demo_impulse2_vector)' in content
     # The event emission is in parent Room's apply_impulse method
     with open(ROOM_FILE) as source:
         room_content = source.read()
@@ -221,13 +223,15 @@ def test_benchmark_room_exports_match_config():
     
     # Check demo exports match config
     demo = config["simulation"].get("demo", {})
-    assert float(_gdscript_export_var(bench, "demo_duration_s")) == demo.get("duration_s", 10.0)
-    assert float(_gdscript_export_var(bench, "demo_pause_time_s")) == demo.get("pause_time_s", 2.0)
-    assert float(_gdscript_export_var(bench, "demo_resume_time_s")) == demo.get("resume_time_s", 4.0)
-    assert float(_gdscript_export_var(bench, "demo_scale_time_s")) == demo.get("scale_time_s", 6.0)
-    assert float(_gdscript_export_var(bench, "demo_reset_time_s")) == demo.get("reset_time_s", 8.0)
+    assert float(_gdscript_export_var(bench, "demo_duration_s")) == demo.get("duration_s", 15.0)
+    assert float(_gdscript_export_var(bench, "demo_phase1_time_s")) == demo.get("phase1_time_s", 0.0)
+    assert float(_gdscript_export_var(bench, "demo_phase2_time_s")) == demo.get("phase2_time_s", 3.0)
+    assert float(_gdscript_export_var(bench, "demo_phase3_time_s")) == demo.get("phase3_time_s", 8.0)
+    assert float(_gdscript_export_var(bench, "demo_phase4_time_s")) == demo.get("phase4_time_s", 12.0)
     assert float(_gdscript_export_var(bench, "demo_scale_factor")) == demo.get("scale_factor", 2.0)
     
-    impulse = demo.get("automatic_impulse", {})
-    assert float(_gdscript_export_var(bench, "impulse_time_s")) == impulse.get("time_s", 1.0)
-    assert _gdscript_export_var(bench, "impulse_target_id").strip('"') == impulse.get("target_instance_id", "obj_metal_sphere")
+    # Check impulse exports match config
+    assert float(_gdscript_export_var(bench, "impulse1_time_s")) == demo.get("impulse1_time_s", 3.0)
+    assert _gdscript_export_var(bench, "impulse1_target_id").strip('"') == demo.get("impulse1_target_id", "obj_metal_sphere")
+    assert float(_gdscript_export_var(bench, "impulse2_time_s")) == demo.get("impulse2_time_s", 8.0)
+    assert _gdscript_export_var(bench, "impulse2_target_id").strip('"') == demo.get("impulse2_target_id", "obj_rubber_cylinder")

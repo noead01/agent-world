@@ -75,18 +75,25 @@ var object_definitions: Array = [
 
 # Demo scenario timing (overrides config defaults)
 @export_group("Demo Scenario")
-@export var demo_duration_s: float = 10.0
-@export var demo_pause_time_s: float = 2.0
-@export var demo_resume_time_s: float = 4.0
-@export var demo_scale_time_s: float = 6.0
-@export var demo_reset_time_s: float = 8.0
+@export var demo_duration_s: float = 15.0
+# Phase 1: Curiosity exploration (start)
+@export var demo_phase1_time_s: float = 0.0
+# Phase 2: Uncertainty investigation (impulse on metal_sphere)
+@export var demo_phase2_time_s: float = 3.0
+# Phase 3: Integrity safety (impulse toward agent)
+@export var demo_phase3_time_s: float = 8.0
+# Phase 4: Reset
+@export var demo_phase4_time_s: float = 12.0
 @export var demo_scale_factor: float = 2.0
 
-# Automatic impulse for demonstration
-@export_group("Automatic Impulse")
-@export var impulse_time_s: float = 1.0
-@export var impulse_target_id: String = "obj_metal_sphere"
-@export var impulse_vector: Vector3 = Vector3(2.0, 0.0, 0.0)
+# Automatic impulses for demonstration
+@export_group("Automatic Impulses")
+@export var impulse1_time_s: float = 3.0
+@export var impulse1_target_id: String = "obj_metal_sphere"
+@export var impulse1_vector: Vector3 = Vector3(3.0, 0.0, 0.0)
+@export var impulse2_time_s: float = 8.0
+@export var impulse2_target_id: String = "obj_rubber_cylinder"
+@export var impulse2_vector: Vector3 = Vector3(0.0, 0.0, -5.0)
 
 func _ready() -> void:
 	# Apply benchmark-specific object definitions before parent _ready spawns them
@@ -94,14 +101,17 @@ func _ready() -> void:
 	
 	# Override demo timing from exports (these take precedence over config file)
 	_demo_duration = demo_duration_s
-	_demo_pause_time = demo_pause_time_s
-	_demo_resume_time = demo_resume_time_s
-	_demo_scale_time = demo_scale_time_s
-	_demo_reset_time = demo_reset_time_s
+	_demo_phase1_time = demo_phase1_time_s
+	_demo_phase2_time = demo_phase2_time_s
+	_demo_phase3_time = demo_phase3_time_s
+	_demo_phase4_time = demo_phase4_time_s
 	_demo_scale_factor = demo_scale_factor
-	_demo_impulse_time = impulse_time_s
-	_demo_impulse_target_id = impulse_target_id
-	_demo_impulse_vector = impulse_vector
+	_demo_impulse1_time = impulse1_time_s
+	_demo_impulse1_target_id = impulse1_target_id
+	_demo_impulse1_vector = impulse1_vector
+	_demo_impulse2_time = impulse2_time_s
+	_demo_impulse2_target_id = impulse2_target_id
+	_demo_impulse2_vector = impulse2_vector
 	
 	# Allow env var to override demo duration for acceptance tests
 	var env_duration = OS.get_environment("AGENT_WORLD_DEMO_DURATION")
@@ -182,56 +192,39 @@ func _process_demo(delta: float) -> void:
 		return
 	_demo_timer += delta
 	
-	# Demo sequence: pause/resume/time-scale/reset at scheduled times.
-	# The step counter makes each transition one-shot.
-	if _demo_step == 0 and _demo_timer >= _demo_pause_time:
-		_sim_time.pause()
+	# Demo sequence showing three drive behaviors:
+	# Phase 1 (t=0): Curiosity - agent explores novel objects
+	# Phase 2 (t=3): Uncertainty - impulse on metal_sphere -> agent investigates
+	# Phase 3 (t=8): Physical Integrity - fast impulse on cylinder toward agent -> agent waits (safety)
+	# Phase 4 (t=12): Reset
+	
+	if _demo_step == 0 and _demo_timer >= _demo_phase2_time:
+		# Phase 2: Apply impulse to metal_sphere to create prediction error (uncertainty)
+		var target = _find_object(_demo_impulse1_target_id)
+		if target:
+			apply_impulse(target.instance_id, _demo_impulse1_vector)
+			_impulse_applied = true
+			print("  PHASE 2: IMPULSE applied to %s at t=%.1fs (triggers Uncertainty > 0.6 -> investigate)" % [_demo_impulse1_target_id, _demo_timer])
 		_demo_step = 1
-		_append_domain_event("simulation_paused", "", {
-			"description": "Simulation paused by demo control",
-			"reason": "demo_schedule",
-			"simulation_tick": _sim_time.simulation_tick,
-		})
-		print("  SIM PAUSED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_step == 1 and _demo_timer >= _demo_resume_time:
-		_sim_time.resume()
+	elif _demo_step == 1 and _demo_timer >= _demo_phase3_time:
+		# Phase 3: Apply impulse to rubber_cylinder toward agent (integrity risk)
+		var target = _find_object(_demo_impulse2_target_id)
+		if target:
+			apply_impulse(target.instance_id, _demo_impulse2_vector)
+			print("  PHASE 3: IMPULSE applied to %s at t=%.1fs (triggers Integrity < 0.3 -> safety wait)" % [_demo_impulse2_target_id, _demo_timer])
 		_demo_step = 2
-		_append_domain_event("simulation_resumed", "", {
-			"description": "Simulation resumed by demo control",
-			"reason": "demo_schedule",
-			"simulation_tick": _sim_time.simulation_tick,
-		})
-		print("  SIM RESUMED at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_step == 2 and _demo_timer >= _demo_scale_time:
-		_sim_time.set_time_scale(_demo_scale_factor)
-		_demo_step = 3
-		_append_domain_event("simulation_time_scale_changed", "", {
-			"description": "Simulation time scale changed by demo control",
-			"reason": "demo_schedule",
-			"time_scale": _demo_scale_factor,
-			"simulation_tick": _sim_time.simulation_tick,
-		})
-		print("  TIME SCALE 2.0 at t=%.1fs (sim_time=%.3f, tick=%d)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick])
-	elif _demo_step == 3 and _demo_timer >= _demo_reset_time:
-		# Accumulate simulation time before reset for monotonic run clock
+	elif _demo_step == 2 and _demo_timer >= _demo_phase4_time:
+		# Phase 4: Reset
 		_cumulative_run_time += _sim_time.simulation_time
 		_sim_time.reset()
 		_sim_time.set_time_scale(1.0)
-		_demo_step = 4
+		_demo_step = 3
 		_append_domain_event("simulation_reset", "", {
 			"description": "Simulation reset by demo control",
 			"reason": "demo_schedule",
 			"cumulative_run_time_s": _cumulative_run_time,
 		})
-		print("  SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d, cumulative=%.3f)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick, _cumulative_run_time])
-	
-	# Apply an impulse to target at scheduled time (before pause) to demonstrate impulse response
-	if not _impulse_applied and _demo_timer >= _demo_impulse_time:
-		var target = _find_object(_demo_impulse_target_id)
-		if target:
-			apply_impulse(target.instance_id, _demo_impulse_vector)
-			_impulse_applied = true
-			print("  IMPULSE applied to %s at t=%.1fs" % [_demo_impulse_target_id, _demo_timer])
+		print("  PHASE 4: SIM RESET at t=%.1fs (sim_time=%.3f, tick=%d, cumulative=%.3f)" % [_demo_timer, _sim_time.simulation_time, _sim_time.simulation_tick, _cumulative_run_time])
 	
 	# Print status once per second with simulation time
 	if _verbose_logging and _demo_timer - _last_print_time >= 1.0:

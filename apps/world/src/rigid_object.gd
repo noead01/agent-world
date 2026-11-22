@@ -21,11 +21,6 @@ var dimensions_m: Dictionary = { "x": 0.5, "y": 0.5, "z": 0.5 }
 var _has_landed: bool = false
 var _was_moving: bool = false
 
-func _ready() -> void:
-	# Set sleep threshold via PhysicsServer (lower = sleeps sooner, stops jitter)
-	# BODY_PARAM_SLEEP_THRESHOLD = 12
-	PhysicsServer3D.body_set_param(get_rid(), PhysicsServer3D.BODY_PARAM_SLEEP_THRESHOLD, 0.01)
-
 func configure(defn: Dictionary) -> void:
 	instance_id = String(defn.get("instance_id", ""))
 	type_id = String(defn.get("type_id", ""))

@@ -131,6 +131,13 @@ func _ready() -> void:
 	# may be overridden by physics_engine selection at startup)
 	var space: RID = get_world_3d().space
 	PhysicsServer3D.space_set_param(space, 0, gravity.y)
+	# Set sleep thresholds so objects settle faster and stop jittering
+	# SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD = 4
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_LINEAR_VELOCITY_SLEEP_THRESHOLD, 0.01)
+	# SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD = 5
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_ANGULAR_VELOCITY_SLEEP_THRESHOLD, 0.01)
+	# SPACE_PARAM_BODY_TIME_TO_SLEEP = 6 (seconds before sleep)
+	PhysicsServer3D.space_set_param(space, PhysicsServer3D.SPACE_PARAM_BODY_TIME_TO_SLEEP, 0.5)
 
 	_build_room_boundaries()
 	_spawn_objects()

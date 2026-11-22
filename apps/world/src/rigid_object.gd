@@ -53,7 +53,11 @@ func configure(defn: Dictionary) -> void:
 	# Assign a PhysicsMaterial so friction and bounciness affect simulation
 	var material: PhysicsMaterial = PhysicsMaterial.new()
 	material.friction = friction
-	material.bounce = bounciness
+	# Zero bounce for boxes to eliminate micro-bouncing on floor/each other
+	if shape_type == "box":
+		material.bounce = 0.0
+	else:
+		material.bounce = bounciness
 	physics_material_override = material
 
 	var dims: Dictionary = dimensions_m

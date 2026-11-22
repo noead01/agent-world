@@ -178,6 +178,8 @@ func _ready() -> void:
 
 	# Spawn the embodied agent (must be before EventRecorder start_run to have agent_id)
 	_spawn_agent()
+	# Connect agent to room and simulation time for navigation and action execution
+	_agent.set_room(self, _sim_time)
 
 	# Generate high-precision run_id using timestamp + milliseconds + random component
 	var timestamp_sec = Time.get_unix_time_from_system()
@@ -759,15 +761,20 @@ func _emit_metrics() -> void:
 func _vector_to_dict(v: Vector3) -> Dictionary:
 	return {"x": v.x, "y": v.y, "z": v.z}
 
-func _append_domain_event(event_family: String, instance_id: String, payload: Dictionary) -> void:
+func _append_domain_event(event_type_id: String, instance_id: String, payload: Dictionary) -> void:
 	if _event_recorder:
+		# Event ID must match ^[a-z][a-z0-9_-]*$ (start with lowercase letter)
+		var event_id: String = "evt_" + str(_world_revision) + "_" + event_type_id.replace(".", "_") + "_" + str(_event_recorder._event_count)
 		var event: Dictionary = {
-			"event_family": event_family,
-			"instance_id": instance_id,
-			"payload": payload,
-			"world_revision": _world_revision,
-			"run_id": _event_recorder._current_run_id if _event_recorder else "",
+			"id": event_id,
+			"run_id": _event_recorder._current_run_id,
+			"agent_id": _agent.agent_id,
 			"timestamp_s": _sim_time.simulation_time if _sim_time else 0.0,
+			"version": "1.0.0",
+			"event_type_id": event_type_id,
+			"target_instance_id": instance_id,
+			"description": payload.get("description", ""),
+			"metadata": payload,
 		}
 		_event_recorder.append_event(event)
 
@@ -944,7 +951,7 @@ func _on_stale_request(request_id: String) -> void:
 		"simulation_tick": _sim_time.simulation_tick if _sim_time else 0,
 	})
 
-func _on_run_failed(reason: String) -> void:
-	print("RUN FAILED: %s - %s" % [_event_recorder.run_id if _event_recorder else "unknown", reason])
+func _on_run_failed(run_id: String, reason: String) -> void:
+	print("RUN FAILED: %s - %s" % [run_id, reason])
 	set_process(false)
 	set_physics_process(false)

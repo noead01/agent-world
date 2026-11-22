@@ -141,6 +141,8 @@ func _spawn_objects() -> void:
 		add_child(obj)
 		objects.append(obj)
 		obj.body_entered.connect(_on_object_landed.bind(obj.instance_id))
+		# Wake up the object so it falls due to gravity (can_sleep=true might cause immediate sleep)
+		obj.set_sleeping(false)
 
 func _add_object_visual(obj: RigidBody3D, def: Dictionary) -> void:
 	var mesh_instance = MeshInstance3D.new()

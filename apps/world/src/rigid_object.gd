@@ -40,6 +40,10 @@ func configure(defn: Dictionary) -> void:
 	mass = mass_kg
 	gravity_scale = 1.0
 	can_sleep = true
+	# Sleep thresholds - lower values make objects sleep sooner, stopping jitter
+	sleep_threshold = 0.01
+	# Enable continuous collision detection for fast-moving objects
+	continuous_cd = true
 	# Assign a PhysicsMaterial so friction and bounciness affect simulation
 	var material: PhysicsMaterial = PhysicsMaterial.new()
 	material.friction = friction

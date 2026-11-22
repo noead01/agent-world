@@ -28,6 +28,10 @@ var _received_commands: Dictionary = {}  # command_id -> {terminal_result}
 var _trace_id: String = ""
 var _trace
 
+func _log_verbose_message(message: Dictionary) -> void:
+	if OS.get_environment("AGENT_WORLD_VERBOSE_LOGS") == "1":
+		print("MSG_JSON: %s" % [JSON.stringify(message)])
+
 func set_trace(trace_instance) -> void:
 	_trace = trace_instance
 	print("ProtocolHandler: Trace set via set_trace()")
@@ -125,8 +129,7 @@ func _on_message_received(msg: Dictionary) -> void:
 	
 	# Print correlation for demo verification
 	if msg.has("correlation"):
-		var corr = msg["correlation"]
-		print("MSG_JSON: %s" % [JSON.stringify(msg)])
+		_log_verbose_message(msg)
 
 func _adopt_trace_context(msg: Dictionary) -> void:
 	# Safely adopt trace_id/span_id from a validated message's correlation.
@@ -330,7 +333,7 @@ func _send_world_state(agent_dict: Dictionary, nearby_objects: Array) -> void:
 		"correlation": correlation,
 	}
 	_websocket_client.send_message(state)
-	print("MSG_JSON: %s" % [JSON.stringify(state)])
+	_log_verbose_message(state)
 	
 	# Record outbound WorldState protocol metrics
 	if _trace:
@@ -397,7 +400,7 @@ func send_intention(intention: Dictionary) -> void:
 	_pending_requests[msg["id"]] = {"type": "intention", "correlation": correlation, "timestamp": Time.get_ticks_msec() / 1000.0}
 	_websocket_client.send_message(msg)
 	intention_sent.emit(msg)
-	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	_log_verbose_message(msg)
 	
 	# Record outbound Intention protocol metrics
 	if _trace:
@@ -444,8 +447,7 @@ func send_action(action: Dictionary) -> void:
 		_trace.record_histogram("agent_world_protocol_message_size_bytes", len(JSON.stringify(msg)), attrs, experiment_id, scenario_id, scenario_version, agent_id, _current_world_revision, _current_simulation_tick, _current_simulation_time)
 	
 	_trace.end_span(span)
-	print("MSG_JSON: %s" % [JSON.stringify(msg)])
-	_trace.end_span(span)
+	_log_verbose_message(msg)
 
 # Send a terminal action result using an existing execution span's trace context.
 # This keeps the physical outcome and its publication in the same trace.
@@ -472,7 +474,7 @@ func send_terminal_result(action: Dictionary, parent_span: Dictionary = {}) -> v
 	msg["correlation"] = correlation
 	msg["request_world_revision"] = _current_world_revision
 	_websocket_client.send_message(msg)
-	print("MSG_JSON: %s" % [JSON.stringify(msg)])
+	_log_verbose_message(msg)
 	
 	# Record outbound terminal Action protocol metrics
 	if _trace:
@@ -561,5 +563,5 @@ func send_health_status() -> void:
 	var msg = build_health_status()
 	if _websocket_client:
 		_websocket_client.send_message(msg)
-		print("MSG_JSON: %s" % [JSON.stringify(msg)])
+		_log_verbose_message(msg)
 	health_status_ready.emit(msg)

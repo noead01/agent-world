@@ -34,6 +34,7 @@ from .metrics import (
     INTENTION_TYPE_ATTR as METRIC_INTENTION_TYPE_ATTR,
     WINNER_LAYER_ATTR,
     REASON_CATEGORY_ATTR,
+    DRIVE_TYPE_ATTR,
 )
 
 
@@ -416,6 +417,18 @@ class MockAgent:
         
         self.physical_integrity = max(0.0, min(1.0, self.physical_integrity + integrity_delta))
         
+        # Emit drive values to telemetry for observability
+        self._init_metrics()
+        base_attrs = metric_attributes_from_correlation(self.correlation_base)
+        if self._metrics_initialized:
+            drive_attrs = dict(base_attrs)
+            drive_attrs[DRIVE_TYPE_ATTR] = "curiosity"
+            self._gauges["agent_world_drive_value"].set(self.curiosity, drive_attrs)
+            drive_attrs[DRIVE_TYPE_ATTR] = "uncertainty"
+            self._gauges["agent_world_drive_value"].set(self.uncertainty, drive_attrs)
+            drive_attrs[DRIVE_TYPE_ATTR] = "physical_integrity"
+            self._gauges["agent_world_drive_value"].set(self.physical_integrity, drive_attrs)
+        
         # Record drive state for observability and deterministic replay verification
         self._drive_history.append({
             "tick": tick,
@@ -452,20 +465,12 @@ class MockAgent:
         
         # Priority 1: Physical Integrity - Safety takes precedence
         if self.physical_integrity < self.INTEGRITY_SAFETY_THRESHOLD:
-            # Find nearest object to move away from, or just wait
-            def obj_distance_sq(o):
-                pos = o.get("position", {})
-                dx = agent_pos[0] - pos.get("x", 0.0)
-                dy = agent_pos[1] - pos.get("y", 0.0)
-                dz = agent_pos[2] - pos.get("z", 0.0)
-                return dx*dx + dy*dy + dz*dz
-            
-            nearest_obj = min(nearby_objects, key=obj_distance_sq)
-            # Move away from nearest object (use move with opposite direction logic)
-            # For simplicity, use wait when integrity is critical
+            # For safety, wait rather than approach hazards. The protocol only supports
+            # "move toward target", so moving toward the nearest object would worsen safety.
+            # Use wait when integrity is in safety range (0.15-0.3) and critical wait (<0.15).
             if self.physical_integrity < 0.15:
                 return "wait", "", "integrity_critical"
-            return "move", nearest_obj.get("instance_id", ""), "integrity_safety"
+            return "wait", "", "integrity_safety"
         
         # Priority 2: Uncertainty - Investigate uncertain objects
         if self.uncertainty > self.UNCERTAINTY_INVESTIGATE_THRESHOLD:

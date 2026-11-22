@@ -72,11 +72,15 @@ def init_metrics(
         return
 
     try:
-        reader = PeriodicExportingMetricReader(
-            ConsoleMetricExporter(),
-            export_interval_millis=export_interval_millis,
-        )
-        provider = MeterProvider(metric_readers=[reader])
+        readers = []
+        if os.environ.get("AGENT_WORLD_VERBOSE_LOGS") == "1":
+            readers.append(
+                PeriodicExportingMetricReader(
+                    ConsoleMetricExporter(),
+                    export_interval_millis=export_interval_millis,
+                )
+            )
+        provider = MeterProvider(metric_readers=readers)
         metrics.set_meter_provider(provider)
         _METER_PROVIDER = provider
     except Exception:  # noqa: BLE001 - telemetry must never block the service
@@ -110,15 +114,15 @@ def metric_attributes_from_correlation(correlation) -> dict:
     run_id is intentionally excluded (high cardinality); it remains in the
     correlation context for trace correlation.
     trace_id and span_id are included for trace correlation.
+    Per-tick identifiers (world_revision, simulation_tick, simulation_time) are
+    intentionally excluded to prevent unbounded cardinality as they change on
+    every WorldState update. These values remain available in trace correlation.
     """
     attrs = {
         EXPERIMENT_ID_ATTR: correlation.experiment_id,
         SCENARIO_ID_ATTR: correlation.scenario_id,
         SCENARIO_VERSION_ATTR: correlation.scenario_version,
         AGENT_ID_ATTR: correlation.agent_id or "",
-        WORLD_REVISION_ATTR: correlation.world_revision,
-        SIMULATION_TICK_ATTR: correlation.simulation_tick,
-        SIMULATION_TIME_ATTR: correlation.simulation_time,
         COMPONENT_ATTR: correlation.component,
         COMPONENT_VERSION_ATTR: correlation.component_version,
     }

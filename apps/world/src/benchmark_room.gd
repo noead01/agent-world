@@ -147,7 +147,8 @@ func _add_object_visual(obj: RigidBody3D, def: Dictionary) -> void:
 		mesh_instance.mesh = sphere_mesh
 	elif shape_type == "cylinder":
 		var cylinder_mesh = CylinderMesh.new()
-		cylinder_mesh.radius = dims["x"] / 2.0
+		cylinder_mesh.top_radius = dims["x"] / 2.0
+		cylinder_mesh.bottom_radius = dims["x"] / 2.0
 		cylinder_mesh.height = dims["y"]
 		mesh_instance.mesh = cylinder_mesh
 	

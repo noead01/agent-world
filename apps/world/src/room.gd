@@ -182,6 +182,8 @@ func _ready() -> void:
 		get_tree().quit()
 		return
 	else:
+		# Update ProtocolHandler with the run_id
+		_protocol_handler.run_id = run_id
 		# Persist the initial run boundary before any other activity so the
 		# authoritative timeline can reconstruct its starting conditions.
 		var initial_objects: Array = []
@@ -234,10 +236,14 @@ func _ready() -> void:
 		
 		# Create ProtocolHandler for message serialization/deserialization
 		var protocol_handler = _protocol_handler_template.new()
-		protocol_handler.configure(
-			experiment_id, scenario_id, scenario_version,
-			_agent.agent_id, _agent.agent_type_id
-		)
+		protocol_handler.experiment_id = experiment_id
+		protocol_handler.scenario_id = scenario_id
+		protocol_handler.scenario_version = scenario_version
+		protocol_handler.agent_id = _agent.agent_id
+		# run_id will be set after EventRecorder starts
+		protocol_handler.stale_threshold = stale_threshold
+		protocol_handler.world_state_interval_ticks = world_state_interval_ticks
+		protocol_handler.set_websocket_client(ws_client)
 		protocol_handler.observation_ready.connect(_send_observation)
 		protocol_handler.intention_ready.connect(_send_intention)
 		protocol_handler.action_ready.connect(_send_action)
@@ -275,11 +281,11 @@ func _load_config_values() -> void:
 	var room_config = _config_loader.get_room()
 	if room_config:
 		half_size = Vector3(room_config.get("half_size", {}).get("x", 13.5), 
-		                   room_config.get("half_size", {}).get("y", 13.5), 
-		                   room_config.get("half_size", {}).get("z", 13.5))
+						   room_config.get("half_size", {}).get("y", 13.5), 
+						   room_config.get("half_size", {}).get("z", 13.5))
 		gravity = Vector3(room_config.get("gravity", {}).get("x", 0.0),
-		                 room_config.get("gravity", {}).get("y", -9.8),
-		                 room_config.get("gravity", {}).get("z", 0.0))
+						 room_config.get("gravity", {}).get("y", -9.8),
+						 room_config.get("gravity", {}).get("z", 0.0))
 		fixed_timestep_hz = room_config.get("fixed_timestep_hz", 60.0)
 	
 	# Load protocol config

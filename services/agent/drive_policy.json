@@ -1,0 +1,37 @@
+{
+  "version": "1",
+  "thresholds": {
+    "curiosity_explore": 0.7,
+    "uncertainty_investigate": 0.6,
+    "integrity_safety": 0.3
+  },
+  "initial_values": {
+    "curiosity": 0.5,
+    "uncertainty": 0.5,
+    "physical_integrity": 1.0
+  },
+  "update_rates": {
+    "curiosity": {
+      "novel_object_boost": 0.15,
+      "moved_object_boost": 0.05,
+      "decay_rate": 0.01
+    },
+    "uncertainty": {
+      "high_prediction_error_boost": 0.1,
+      "medium_prediction_error_boost": 0.03,
+      "good_prediction_decay": 0.005,
+      "unexpected_movement_boost": 0.05,
+      "decay_rate": 0.005
+    },
+    "physical_integrity": {
+      "collision_risk_penalty": 0.005,
+      "recovery_rate": 0.002,
+      "collision_distance_threshold": 0.5
+    }
+  },
+  "prediction_error_thresholds": {
+    "high": 0.04,
+    "medium": 0.01,
+    "unexpected_movement": 0.25
+  }
+}

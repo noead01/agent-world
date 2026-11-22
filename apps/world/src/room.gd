@@ -55,12 +55,36 @@ var _trace
 # External agent-service behavior policy, mirrored by services/agent. The
 # configuration fingerprint must cover it: world-side settings alone cannot
 # distinguish two runs whose agent behavior differs.
-const AGENT_SERVICE_POLICY_VERSION := "1"
+# Version 2: Added drive policy (thresholds, initial values, update rates)
+const AGENT_SERVICE_POLICY_VERSION := "2"
 const AGENT_SERVICE_ACTION_DELAY_TICKS := 12
 const AGENT_SERVICE_ACTION_COOLDOWN_TICKS := 30
 const AGENT_SERVICE_ACTION_DELAY_PROBABILITY := 0.5
 const AGENT_SERVICE_TARGET_IDS := ["obj_wood_cube", "obj_metal_sphere", "obj_glass_box", "obj_rubber_cylinder"]
 const AGENT_SERVICE_INTERRUPT_TARGET_IDS := ["obj_wood_cube"]
+
+# Drive policy constants (must match services/agent/drive_policy.json)
+const DRIVE_POLICY_VERSION := "1"
+const DRIVE_CURIOSITY_EXPLORE_THRESHOLD := 0.7
+const DRIVE_UNCERTAINTY_INVESTIGATE_THRESHOLD := 0.6
+const DRIVE_INTEGRITY_SAFETY_THRESHOLD := 0.3
+const DRIVE_INITIAL_CURIOSITY := 0.5
+const DRIVE_INITIAL_UNCERTAINTY := 0.5
+const DRIVE_INITIAL_INTEGRITY := 1.0
+const DRIVE_CURIOSITY_NOVEL_BOOST := 0.15
+const DRIVE_CURIOSITY_MOVED_BOOST := 0.05
+const DRIVE_CURIOSITY_DECAY_RATE := 0.01
+const DRIVE_UNCERTAINTY_HIGH_ERROR_BOOST := 0.1
+const DRIVE_UNCERTAINTY_MEDIUM_ERROR_BOOST := 0.03
+const DRIVE_UNCERTAINTY_GOOD_PREDICTION_DECAY := 0.005
+const DRIVE_UNCERTAINTY_UNEXPECTED_MOVEMENT_BOOST := 0.05
+const DRIVE_UNCERTAINTY_DECAY_RATE := 0.005
+const DRIVE_INTEGRITY_COLLISION_PENALTY := 0.005
+const DRIVE_INTEGRITY_RECOVERY_RATE := 0.002
+const DRIVE_INTEGRITY_COLLISION_DISTANCE := 0.5
+const DRIVE_PREDICTION_ERROR_HIGH := 0.04
+const DRIVE_PREDICTION_ERROR_MEDIUM := 0.01
+const DRIVE_UNEXPECTED_MOVEMENT_THRESHOLD := 0.25
 
 var _agent
 var _ws_client
@@ -281,6 +305,43 @@ func _compute_config_fingerprint() -> String:
 			"action_cooldown_ticks": AGENT_SERVICE_ACTION_COOLDOWN_TICKS,
 			"action_delay_probability": AGENT_SERVICE_ACTION_DELAY_PROBABILITY,
 			"target_sequence": _agent_service_target_sequence(),
+			"drive_policy": {
+				"version": DRIVE_POLICY_VERSION,
+				"thresholds": {
+					"curiosity_explore": DRIVE_CURIOSITY_EXPLORE_THRESHOLD,
+					"uncertainty_investigate": DRIVE_UNCERTAINTY_INVESTIGATE_THRESHOLD,
+					"integrity_safety": DRIVE_INTEGRITY_SAFETY_THRESHOLD
+				},
+				"initial_values": {
+					"curiosity": DRIVE_INITIAL_CURIOSITY,
+					"uncertainty": DRIVE_INITIAL_UNCERTAINTY,
+					"physical_integrity": DRIVE_INITIAL_INTEGRITY
+				},
+				"update_rates": {
+					"curiosity": {
+						"novel_object_boost": DRIVE_CURIOSITY_NOVEL_BOOST,
+						"moved_object_boost": DRIVE_CURIOSITY_MOVED_BOOST,
+						"decay_rate": DRIVE_CURIOSITY_DECAY_RATE
+					},
+					"uncertainty": {
+						"high_prediction_error_boost": DRIVE_UNCERTAINTY_HIGH_ERROR_BOOST,
+						"medium_prediction_error_boost": DRIVE_UNCERTAINTY_MEDIUM_ERROR_BOOST,
+						"good_prediction_decay": DRIVE_UNCERTAINTY_GOOD_PREDICTION_DECAY,
+						"unexpected_movement_boost": DRIVE_UNCERTAINTY_UNEXPECTED_MOVEMENT_BOOST,
+						"decay_rate": DRIVE_UNCERTAINTY_DECAY_RATE
+					},
+					"physical_integrity": {
+						"collision_risk_penalty": DRIVE_INTEGRITY_COLLISION_PENALTY,
+						"recovery_rate": DRIVE_INTEGRITY_RECOVERY_RATE,
+						"collision_distance_threshold": DRIVE_INTEGRITY_COLLISION_DISTANCE
+					}
+				},
+				"prediction_error_thresholds": {
+					"high": DRIVE_PREDICTION_ERROR_HIGH,
+					"medium": DRIVE_PREDICTION_ERROR_MEDIUM,
+					"unexpected_movement": DRIVE_UNEXPECTED_MOVEMENT_THRESHOLD
+				}
+			}
 		},
 		"simulation": {
 			"day_cycle_duration_s": _sim_time.day_cycle_duration_s,

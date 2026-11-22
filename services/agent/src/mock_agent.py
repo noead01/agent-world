@@ -38,6 +38,18 @@ from .metrics import (
 )
 
 
+# Load drive policy from config file for fingerprinting
+def _load_drive_policy() -> Dict[str, Any]:
+    """Load drive policy from JSON config file."""
+    import os
+    config_path = os.path.join(os.path.dirname(__file__), "..", "drive_policy.json")
+    with open(config_path, "r") as f:
+        return json.load(f)
+
+
+_DRIVE_POLICY = _load_drive_policy()
+
+
 class MockAgent:
     """Deterministic agent that produces intentions/actions on a fixed schedule."""
 
@@ -47,10 +59,35 @@ class MockAgent:
     ACTION_DELAY_TICKS = 12
     ACTION_COOLDOWN_TICKS = 30
     
-    # Drive thresholds for arbitration influence
-    CURIOSITY_EXPLORE_THRESHOLD = 0.7
-    UNCERTAINTY_INVESTIGATE_THRESHOLD = 0.6
-    INTEGRITY_SAFETY_THRESHOLD = 0.3
+    # Drive thresholds for arbitration influence (from drive_policy.json)
+    CURIOSITY_EXPLORE_THRESHOLD = _DRIVE_POLICY["thresholds"]["curiosity_explore"]
+    UNCERTAINTY_INVESTIGATE_THRESHOLD = _DRIVE_POLICY["thresholds"]["uncertainty_investigate"]
+    INTEGRITY_SAFETY_THRESHOLD = _DRIVE_POLICY["thresholds"]["integrity_safety"]
+    
+    # Drive initial values (from drive_policy.json)
+    INITIAL_CURIOSITY = _DRIVE_POLICY["initial_values"]["curiosity"]
+    INITIAL_UNCERTAINTY = _DRIVE_POLICY["initial_values"]["uncertainty"]
+    INITIAL_PHYSICAL_INTEGRITY = _DRIVE_POLICY["initial_values"]["physical_integrity"]
+    
+    # Drive update rates (from drive_policy.json)
+    CURIOSITY_NOVEL_BOOST = _DRIVE_POLICY["update_rates"]["curiosity"]["novel_object_boost"]
+    CURIOSITY_MOVED_BOOST = _DRIVE_POLICY["update_rates"]["curiosity"]["moved_object_boost"]
+    CURIOSITY_DECAY_RATE = _DRIVE_POLICY["update_rates"]["curiosity"]["decay_rate"]
+    
+    UNCERTAINTY_HIGH_ERROR_BOOST = _DRIVE_POLICY["update_rates"]["uncertainty"]["high_prediction_error_boost"]
+    UNCERTAINTY_MEDIUM_ERROR_BOOST = _DRIVE_POLICY["update_rates"]["uncertainty"]["medium_prediction_error_boost"]
+    UNCERTAINTY_GOOD_PREDICTION_DECAY = _DRIVE_POLICY["update_rates"]["uncertainty"]["good_prediction_decay"]
+    UNCERTAINTY_UNEXPECTED_MOVEMENT_BOOST = _DRIVE_POLICY["update_rates"]["uncertainty"]["unexpected_movement_boost"]
+    UNCERTAINTY_DECAY_RATE = _DRIVE_POLICY["update_rates"]["uncertainty"]["decay_rate"]
+    
+    INTEGRITY_COLLISION_PENALTY = _DRIVE_POLICY["update_rates"]["physical_integrity"]["collision_risk_penalty"]
+    INTEGRITY_RECOVERY_RATE = _DRIVE_POLICY["update_rates"]["physical_integrity"]["recovery_rate"]
+    INTEGRITY_COLLISION_DISTANCE = _DRIVE_POLICY["update_rates"]["physical_integrity"]["collision_distance_threshold"]
+    
+    # Prediction error thresholds (from drive_policy.json)
+    PREDICTION_ERROR_HIGH = _DRIVE_POLICY["prediction_error_thresholds"]["high"]
+    PREDICTION_ERROR_MEDIUM = _DRIVE_POLICY["prediction_error_thresholds"]["medium"]
+    UNEXPECTED_MOVEMENT_THRESHOLD = _DRIVE_POLICY["prediction_error_thresholds"]["unexpected_movement"]
     
     def __init__(
         self, 
@@ -97,11 +134,11 @@ class MockAgent:
         # --- Drive system ---
         # Each drive in range [0.0, 1.0], updated deterministically per tick
         # Curiosity: increases with novel observations, decays with familiarity
-        self.curiosity: float = 0.5
+        self.curiosity: float = self.INITIAL_CURIOSITY
         # Uncertainty: increases with prediction error, decays with confirmation
-        self.uncertainty: float = 0.5
+        self.uncertainty: float = self.INITIAL_UNCERTAINTY
         # Physical Integrity: decreases with impacts, recovers in safety
-        self.physical_integrity: float = 1.0
+        self.physical_integrity: float = self.INITIAL_PHYSICAL_INTEGRITY
         
         # Drive history for deterministic replay and observability
         self._drive_history: List[Dict[str, Any]] = []
@@ -342,7 +379,7 @@ class MockAgent:
             
             if obj_id not in self._seen_objects:
                 # Never seen before - strong curiosity boost (one-time)
-                curiosity_delta += 0.15
+                curiosity_delta += self.CURIOSITY_NOVEL_BOOST
                 self._seen_objects[obj_id] = tick
             else:
                 # Check if object moved (novel state) - compare against PREVIOUS prediction
@@ -352,15 +389,15 @@ class MockAgent:
                     dy = obj_pos[1] - predicted[1]
                     dz = obj_pos[2] - predicted[2]
                     dist_sq = dx*dx + dy*dy + dz*dz
-                    if dist_sq > 0.01:  # Moved > 10cm
-                        curiosity_delta += 0.05  # One-time boost
+                    if dist_sq > self.PREDICTION_ERROR_MEDIUM:  # Moved > 10cm
+                        curiosity_delta += self.CURIOSITY_MOVED_BOOST  # One-time boost
                         self._seen_objects[obj_id] = tick  # Only update when object actually moved
                 # Update prediction AFTER computing curiosity delta
                 self._predicted_positions[obj_id] = obj_pos
         
         # Curiosity decay when nothing novel (continuous rate, scaled by delta_ticks)
         if curiosity_delta == 0.0:
-            curiosity_delta = -0.01 * delta_ticks
+            curiosity_delta = -self.CURIOSITY_DECAY_RATE * delta_ticks
         
         self.curiosity = max(0.0, min(1.0, self.curiosity + curiosity_delta))
         
@@ -378,13 +415,13 @@ class MockAgent:
                 dy = obj_pos[1] - predicted[1]
                 dz = obj_pos[2] - predicted[2]
                 dist_sq = dx*dx + dy*dy + dz*dz
-                if dist_sq > 0.04:  # Prediction error > 20cm
-                    uncertainty_delta += 0.1 * delta_ticks
-                elif dist_sq > 0.01:  # Prediction error > 10cm
-                    uncertainty_delta += 0.03 * delta_ticks
+                if dist_sq > self.PREDICTION_ERROR_HIGH:  # Prediction error > 20cm
+                    uncertainty_delta += self.UNCERTAINTY_HIGH_ERROR_BOOST * delta_ticks
+                elif dist_sq > self.PREDICTION_ERROR_MEDIUM:  # Prediction error > 10cm
+                    uncertainty_delta += self.UNCERTAINTY_MEDIUM_ERROR_BOOST * delta_ticks
                 else:
                     # Good prediction - uncertainty decreases
-                    uncertainty_delta -= 0.005 * delta_ticks
+                    uncertainty_delta -= self.UNCERTAINTY_GOOD_PREDICTION_DECAY * delta_ticks
         
         # Agent self-prediction error (did we move as expected?)
         if self._last_agent_position is not None:
@@ -392,13 +429,13 @@ class MockAgent:
             dy = agent_pos[1] - self._last_agent_position[1]
             dz = agent_pos[2] - self._last_agent_position[2]
             dist_sq = dx*dx + dy*dy + dz*dz
-            if dist_sq > 0.25:  # Unexpected movement > 50cm
-                uncertainty_delta += 0.05 * delta_ticks
+            if dist_sq > self.UNEXPECTED_MOVEMENT_THRESHOLD:  # Unexpected movement > 50cm
+                uncertainty_delta += self.UNCERTAINTY_UNEXPECTED_MOVEMENT_BOOST * delta_ticks
         self._last_agent_position = agent_pos
         
         # Uncertainty decay
         if uncertainty_delta == 0.0:
-            uncertainty_delta = -0.005 * delta_ticks
+            uncertainty_delta = -self.UNCERTAINTY_DECAY_RATE * delta_ticks
             
         self.uncertainty = max(0.0, min(1.0, self.uncertainty + uncertainty_delta))
         
@@ -414,12 +451,12 @@ class MockAgent:
             dy = agent_pos[1] - obj_pos[1]
             dz = agent_pos[2] - obj_pos[2]
             dist_sq = dx*dx + dy*dy + dz*dz
-            if dist_sq < 0.5:  # Very close to object (< ~70cm)
-                integrity_delta -= 0.005 * delta_ticks
+            if dist_sq < self.INTEGRITY_COLLISION_DISTANCE:  # Very close to object (< ~70cm)
+                integrity_delta -= self.INTEGRITY_COLLISION_PENALTY * delta_ticks
         
         # Recovery when stationary and not near hazards
         if integrity_delta == 0.0:
-            integrity_delta = 0.002 * delta_ticks  # Slow recovery
+            integrity_delta = self.INTEGRITY_RECOVERY_RATE * delta_ticks  # Slow recovery
         
         self.physical_integrity = max(0.0, min(1.0, self.physical_integrity + integrity_delta))
         
@@ -825,6 +862,7 @@ class MockAgent:
                         "type": "action", "timestamp": time.time(),
                         "target_index": target_index, "payload": payload,
                         "action_start": action_start,
+                        "correlation": correlation,
                     }
                     await self.send(payload)
                 
@@ -867,6 +905,7 @@ class MockAgent:
                         "type": "action", "timestamp": time.time(),
                         "target_index": target_index, "payload": payload,
                         "action_start": action_start,
+                        "correlation": correlation,
                     }
                     await self.send(payload)
                 

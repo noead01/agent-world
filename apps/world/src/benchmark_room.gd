@@ -21,7 +21,7 @@ var object_definitions: Array = [
 		"bounciness": 0.3,
 		"density_kg_per_m3": 650,
 		"dimensions_m": {"x": 0.6, "y": 0.6, "z": 0.6},
-		"position": {"x": 0.0, "y": -13.0, "z": 0.0}
+		"position": {"x": -2.0, "y": -13.0, "z": 3.0}
 	},
 	{
 		"instance_id": "obj_metal_sphere",
@@ -37,7 +37,7 @@ var object_definitions: Array = [
 		"bounciness": 0.8,
 		"density_kg_per_m3": 7800,
 		"dimensions_m": {"x": 0.4, "y": 0.4, "z": 0.4},
-		"position": {"x": 2.5, "y": -13.0, "z": 0.0}
+		"position": {"x": 0.0, "y": -13.0, "z": 3.0}
 	},
 	{
 		"instance_id": "obj_glass_box",
@@ -53,7 +53,7 @@ var object_definitions: Array = [
 		"bounciness": 0.5,
 		"density_kg_per_m3": 2500,
 		"dimensions_m": {"x": 0.5, "y": 0.5, "z": 0.5},
-		"position": {"x": -2.0, "y": -13.0, "z": 0.0}
+		"position": {"x": 2.0, "y": -13.0, "z": 3.0}
 	},
 	{
 		"instance_id": "obj_rubber_cylinder",
@@ -69,7 +69,7 @@ var object_definitions: Array = [
 		"bounciness": 0.7,
 		"density_kg_per_m3": 1100,
 		"dimensions_m": {"x": 0.4, "y": 0.8, "z": 0.4},
-		"position": {"x": 0.0, "y": -12.0, "z": 3.0}
+		"position": {"x": 0.0, "y": -12.0, "z": 5.0}
 	}
 ]
 

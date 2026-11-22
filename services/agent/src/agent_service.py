@@ -76,6 +76,10 @@ class AgentService:
             run_id=self.run_id,
             experiment_id=self.experiment_id,
         )
+        
+        # World component health (updated from HealthStatus messages)
+        self._world_component_health: Dict[str, Dict[str, Any]] = {}
+        
         self._last_metric_export = time.time()
         
     async def start(self) -> None:
@@ -185,14 +189,20 @@ class AgentService:
         llm_status = "healthy"  # Default to healthy when not configured
         llm_latency = 0.0
         
-        # Recorder health (world-side)
-        recorder_status = "healthy"
+        # World component health (from HealthStatus messages)
+        world_health = self._world_component_health
         
-        # Artifact store health
-        artifact_store_status = "healthy"
+        # Recorder health (world-side) - use world health if available, default to healthy
+        recorder_status = world_health.get("recorder", {}).get("status", "healthy")
+        recorder_writable = world_health.get("recorder", {}).get("writable", True)
         
-        # Evaluator health
-        evaluator_status = "healthy"
+        # Artifact store health - use world health if available, default to healthy
+        artifact_store_status = world_health.get("artifact_store", {}).get("status", "healthy")
+        artifact_store_writable = world_health.get("artifact_store", {}).get("writable", True)
+        
+        # Evaluator health - use world health if available, default to healthy
+        evaluator_status = world_health.get("evaluator", {}).get("status", "healthy")
+        evaluator_scenario_loaded = world_health.get("evaluator", {}).get("scenario_loaded", True)
         
         # Validity tracker
         validity_status = self.validity_tracker.current.value
@@ -215,15 +225,15 @@ class AgentService:
             },
             "recorder": {
                 "status": recorder_status,
-                "writable": True,
+                "writable": recorder_writable,
             },
             "artifact_store": {
                 "status": artifact_store_status,
-                "writable": True,
+                "writable": artifact_store_writable,
             },
             "evaluator": {
                 "status": evaluator_status,
-                "scenario_loaded": True,
+                "scenario_loaded": evaluator_scenario_loaded,
             },
             "validity": {
                 "status": validity_status,
@@ -506,6 +516,14 @@ class AgentService:
             await mock_agent.on_action_result(msg)  # Reuse same handler for now
         elif isinstance(msg, Error):
             await mock_agent.on_error(msg)
+        elif isinstance(msg, HealthStatus):
+            # Update stored world component health from periodic HealthStatus reports
+            self._world_component_health = msg.components
+            # Update validity tracker based on overall world health
+            if msg.overall == "failed":
+                self.validity_tracker.record_failure(f"world_health_{msg.run_id}", "world_reported_failed")
+            elif msg.overall == "degraded":
+                self.validity_tracker.record_failure(f"world_health_{msg.run_id}", "world_reported_degraded")
             
     async def _world_tick_loop(self) -> None:
         """Process world state and issue actions for all connected agents."""

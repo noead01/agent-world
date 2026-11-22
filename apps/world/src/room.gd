@@ -606,7 +606,6 @@ func _spawn_agent() -> void:
 	# Pitch down ~30 degrees (-0.52 rad) to see objects on the floor
 	var agent_camera = Camera3D.new()
 	agent_camera.name = "AgentCamera"
-	agent_camera.current = true
 	# Position at forehead: slightly below top (0.56), slightly forward of center (-radius)
 	agent_camera.position = Vector3(0, 0.35, -0.35)
 	# Rotate 180 degrees around Y so camera faces travel direction
@@ -614,6 +613,8 @@ func _spawn_agent() -> void:
 	# Pitch down -0.52 rad (~ -30 deg) to see floor/objects
 	agent_camera.rotation = Vector3(-0.52, PI, 0)
 	_agent.add_child(agent_camera)
+	# Make camera current AFTER adding to scene tree (required in Godot 4)
+	agent_camera.make_current()
 
 func _animate_day_night(hour: float) -> void:
 	if _light and abs(hour - _last_light_hour) > 0.1:

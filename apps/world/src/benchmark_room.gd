@@ -130,6 +130,8 @@ func _ready() -> void:
 
 func _spawn_objects() -> void:
 	# Override parent's _spawn_objects to use our definitions
+	# Create all objects first (initially sleeping) so they start falling simultaneously
+	var created_objects: Array = []
 	for def in object_definitions:
 		var obj = load("res://src/rigid_object.gd").new()
 		obj.configure(def)
@@ -138,10 +140,18 @@ func _spawn_objects() -> void:
 		# Enable contact monitoring so body_entered signals fire on collisions
 		obj.contact_monitor = true
 		obj.max_contacts_reported = 1
+		# Start sleeping so physics doesn't simulate until all objects are added
+		obj.sleeping = true
+		created_objects.append(obj)
+	
+	# Now add all objects to scene tree at once
+	for obj in created_objects:
 		add_child(obj)
 		objects.append(obj)
 		obj.body_entered.connect(_on_object_landed.bind(obj.instance_id))
-		# Wake up the object so it falls due to gravity (can_sleep=true might cause immediate sleep)
+	
+	# Wake all objects simultaneously so they fall together
+	for obj in created_objects:
 		obj.set_sleeping(false)
 
 func _add_object_visual(obj: RigidBody3D, def: Dictionary) -> void:

@@ -221,6 +221,14 @@ func _ready() -> void:
 		add_child(ws_client)
 		_ws_client = ws_client
 		
+		# Fallback to local mock after 1s if WebSocket doesn't connect (avoids 10s hello_ack_timeout)
+		var fallback_timer = Timer.new()
+		fallback_timer.one_shot = true
+		fallback_timer.wait_time = 1.0
+		fallback_timer.timeout.connect(_fallback_to_local_mock)
+		add_child(fallback_timer)
+		fallback_timer.start()
+		
 		# Create ProtocolHandler for message serialization/deserialization
 		var protocol_handler = _protocol_handler_template.new()
 		protocol_handler.experiment_id = experiment_id
@@ -789,13 +797,13 @@ func _on_message_received(msg: Dictionary) -> void:
 	if _protocol_handler:
 		_protocol_handler._on_message_received(msg)
 
-func _on_connection_failed(code: String, message: String) -> void:
-	print("WebSocket connection failed")
-	_fallback_to_local_mock()
-
 func _on_disconnected(reason: String) -> void:
 	print("WebSocket disconnected: %s" % [reason])
 	_agent_session_connected = false
+
+func _on_connection_failed(code: String, message: String) -> void:
+	print("WebSocket connection failed: code=%s message=%s" % [code, message])
+	_fallback_to_local_mock()
 
 func _fallback_to_local_mock() -> void:
 	if _use_local_mock or _mock_controller != null:
@@ -814,7 +822,7 @@ func _fallback_to_local_mock() -> void:
 	if _protocol_handler != null:
 		_protocol_handler.queue_free()
 		_protocol_handler = null
-	_setup_local_mock_controller(_event_recorder.run_id, hash(_event_recorder.run_id) & 0x7FFFFFFF)
+	_setup_local_mock_controller(_event_recorder._current_run_id, hash(_event_recorder._current_run_id) & 0x7FFFFFFF)
 
 func _setup_local_mock_controller(run_id: String, random_seed: int) -> void:
 	# Create and configure MockController for local testing
@@ -837,6 +845,11 @@ func _setup_local_mock_controller(run_id: String, random_seed: int) -> void:
 	_mock_controller.set_targets(targets)
 	_mock_controller.action_cooldown_s = 2.0  # Slower for visibility
 	
+	# Connect agent signals for logging
+	_agent.action_started.connect(_on_agent_action_started)
+	_agent.action_completed.connect(_on_agent_action_completed)
+	_agent.action_failed.connect(_on_agent_action_failed)
+	
 	# Connect MockController signals to same handlers as ProtocolHandler
 	_mock_controller.controller_action_issued.connect(_on_mock_action_issued)
 	print("Local MockController configured with %d targets" % [targets.size()])
@@ -845,6 +858,15 @@ func _on_mock_action_issued(action_type_id: String, target_instance_id: String) 
 	# Observational only - MockController already executed the action before emitting.
 	# This handler is for logging/metrics correlation, not for re-executing actions.
 	print("MOCK_ACTION_ISSUED: action=%s target=%s" % [action_type_id, target_instance_id])
+
+func _on_agent_action_started(action_type_id: String, target_instance_id: String, command_id: String) -> void:
+	print("AGENT_ACTION_STARTED: action=%s target=%s cmd=%s" % [action_type_id, target_instance_id, command_id])
+
+func _on_agent_action_completed(action_type_id: String, result: String, command_id: String) -> void:
+	print("AGENT_ACTION_COMPLETED: action=%s result=%s cmd=%s" % [action_type_id, result, command_id])
+
+func _on_agent_action_failed(action_type_id: String, reason: String, command_id: String) -> void:
+	print("AGENT_ACTION_FAILED: action=%s reason=%s cmd=%s" % [action_type_id, reason, command_id])
 
 func _send_observation(observation: Dictionary) -> void:
 	if not _ws_client or _ws_client.get_connection_state() != WebSocketClient.ConnectionState.CONNECTED:

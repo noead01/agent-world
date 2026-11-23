@@ -40,10 +40,24 @@ func configure(defn: Dictionary) -> void:
 	mass = mass_kg
 	gravity_scale = 1.0
 	can_sleep = true
+	# Add damping to help objects settle and sleep
+	# Boxes need higher damping to stop micro-bouncing on flat faces
+	if shape_type == "box":
+		linear_damp = 0.5
+		angular_damp = 2.0
+	else:
+		linear_damp = 0.1
+		angular_damp = 0.5
+	# Enable continuous collision detection for fast-moving objects
+	continuous_cd = true
 	# Assign a PhysicsMaterial so friction and bounciness affect simulation
 	var material: PhysicsMaterial = PhysicsMaterial.new()
 	material.friction = friction
-	material.bounce = bounciness
+	# Zero bounce for boxes to eliminate micro-bouncing on floor/each other
+	if shape_type == "box":
+		material.bounce = 0.0
+	else:
+		material.bounce = bounciness
 	physics_material_override = material
 
 	var dims: Dictionary = dimensions_m

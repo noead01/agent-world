@@ -1,14 +1,36 @@
-[gd_scene load_steps=1 format=3 uid="b2c3d4e5f6a7b8c9"]
+[gd_scene load_steps=4 format=3 uid="b2c3d4e5f6a7b8c9"]
 
-[ext_resource path="res://src/room.gd" type="Script" id=1]
+[ext_resource path="res://src/benchmark_room.gd" type="Script" id=1]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]
+albedo_color = Color(0.2, 0.28, 0.31, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(27, 0.05, 27)
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 1
+background_color = Color(0.07, 0.11, 0.17, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.55, 0.66, 0.82, 1)
+ambient_light_energy = 0.9
 
 [node name="Room" type="Node3D"]
 script = ExtResource(1)
 
 [node name="Camera3D" type="Camera3D" parent="."]
-current = true
-position = Vector3(0, 8, -20)
-rotation_degrees = Vector3(-15, 0, 0)
+current = false
+position = Vector3(0, -8.5, -8.5)
+rotation_degrees = Vector3(-24, 180, 0)
+
+[node name="VisibleFloor" type="MeshInstance3D" parent="."]
+position = Vector3(0, -13.43, 0)
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("StandardMaterial3D_floor")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 rotation_degrees = Vector3(-45, -30, 0)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")

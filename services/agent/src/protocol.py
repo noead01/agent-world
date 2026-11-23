@@ -3,7 +3,7 @@ import json
 from typing import Any, Dict, Optional, Union
 from .schemas import (
     Message, Hello, HelloAck, Heartbeat, Error, Goodbye,
-    Observation, Intention, Action, WorldState, CorrelationContext
+    Observation, Intention, Action, WorldState, CorrelationContext, HealthStatus
 )
 
 PROTOCOL_VERSION = "1.0.0"
@@ -32,6 +32,8 @@ def parse_message(data: str) -> Message:
         return Action(**obj)
     elif msg_type == "WorldState":
         return WorldState(**obj)
+    elif msg_type == "HealthStatus":
+        return HealthStatus(**obj)
     else:
         raise ValueError(f"Unknown message type: {msg_type}")
 

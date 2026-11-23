@@ -26,9 +26,10 @@ var name: String = ""
 func _ready() -> void:
 	mass = weight_kg
 	if movability == "fixed":
-		mode = RigidBody3D.MODE_STATIC
+		PhysicsServer3D.body_set_mode(get_rid(), PhysicsServer3D.BODY_MODE_STATIC)
+		can_sleep = true
 	else:
-		mode = RigidBody3D.MODE_RIGID
+		PhysicsServer3D.body_set_mode(get_rid(), PhysicsServer3D.BODY_MODE_RIGID)
 	apply_central_impulse(Vector3.ZERO)
 
 func configure(type_def: Dictionary, instance_overrides: Dictionary = {}) -> void:
@@ -66,10 +67,10 @@ func configure(type_def: Dictionary, instance_overrides: Dictionary = {}) -> voi
 	rotation_degrees = orientation_degrees
 
 	if movability == "fixed":
-		mode = RigidBody3D.MODE_STATIC
+		PhysicsServer3D.body_set_mode(get_rid(), PhysicsServer3D.BODY_MODE_STATIC)
 		can_sleep = true
 	else:
-		mode = RigidBody3D.MODE_RIGID
+		PhysicsServer3D.body_set_mode(get_rid(), PhysicsServer3D.BODY_MODE_RIGID)
 		mass = weight_kg
 
 func _on_body_entered(body: Node) -> void:
